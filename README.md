@@ -4,6 +4,10 @@ A lightweight desktop dashboard for monitoring live 5G signal telemetry from the
 
 > **Personal-use project.** The application is currently configured for a router reachable at `http://192.168.0.1`. Update the address in `router_app.py` if your router uses a different LAN IP.
 
+<img width="1084" height="792" alt="2026-10-24 00_15_23-IRA ZTE MC8501 5G LIVE SIGNAL CHARTS" src="https://github.com/user-attachments/assets/de1c79b4-055d-42e5-abd8-5003385a4fb9" />
+<img width="1081" height="757" alt="2026-10-24 00_34_17-IRA ZTE MC8501 5G LIVE SIGNAL CHARTS" src="https://github.com/user-attachments/assets/2fdc4022-4dec-43ed-b3fe-48f25b56d035" />
+
+
 ## Features
 
 - **Live 5G signal charts** for:
