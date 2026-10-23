@@ -1,9 +1,18 @@
 import time
+import threading
 import subprocess
 import platform
 import requests
 import webview
 import urllib3
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+APP_VERSION = "1.1-dev"
+GITHUB_REPOSITORY = "TheKingTermux/ira-zte-live-signal-charts"
+GITHUB_RELEASES_API = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/releases?per_page=30"
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -152,6 +161,24 @@ HTML_CONTENT = """
 
         </div>
 
+            <!-- Internet Ping Card -->
+            <div class="card-bg bg-slate-900/80 border border-slate-800/80 px-3.5 py-1.5 rounded-xl shadow-md flex items-center justify-between gap-4">
+                <div class="w-48 shrink-0 flex flex-col justify-center">
+                    <div class="flex items-center justify-between">
+                        <span class="text-[11px] font-semibold text-cyan-400 uppercase tracking-wider">INTERNET PING</span>
+                        <div id="status-ping" class="flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-[10px] font-semibold">
+                            <span class="h-1.5 w-1.5 rounded-full bg-slate-500" id="dot-ping"></span>
+                            <span id="text-ping">Menunggu</span>
+                        </div>
+                    </div>
+                    <span class="text-[9px] text-slate-400 -mt-0.5">Latensi HTTPS ke Cloudflare</span>
+                    <div id="val-ping" class="text-base font-bold text-slate-100 leading-tight">— ms</div>
+                </div>
+                <div class="h-12 w-full relative flex-grow">
+                    <canvas id="chartPing"></canvas>
+                </div>
+            </div>
+
         <!-- Tower Information Panel (Tanpa Animasi) -->
         <div class="card-bg bg-slate-900/90 border border-slate-800/80 p-2.5 rounded-xl shadow-md">
             <h2 class="text-xs font-bold text-cyan-400 mb-1.5 flex items-center gap-1.5">
@@ -254,9 +281,9 @@ HTML_CONTENT = """
 
     <!-- Settings & Ping Tool Modal (Animated Open/Close + Clean Tab Transitions) -->
     <div id="settingsModal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm opacity-0 pointer-events-none modal-transition">
-        <div id="settingsBox" class="bg-slate-900 border border-slate-800 p-5 rounded-2xl max-w-md w-full mx-4 shadow-2xl space-y-4 text-slate-100 transform scale-95 transition-transform duration-250">
+        <div id="settingsBox" class="bg-slate-900 border border-slate-800 p-5 rounded-2xl max-w-2xl w-full mx-4 max-h-[92vh] overflow-y-auto shadow-2xl space-y-4 text-slate-100 transform scale-95 transition-transform duration-250">
             <div class="flex justify-between items-center pb-2 border-b border-slate-800">
-                <h3 class="text-sm font-bold text-cyan-400 flex items-center gap-2">⚙️ Pengaturan & Ping Tool</h3>
+                <h3 class="text-sm font-bold text-cyan-400 flex items-center gap-2">⚙️ Pengaturan & Network Tools</h3>
                 <button onclick="animateButton(this); toggleSettingsModal()" class="text-slate-400 hover:text-white text-xs font-bold px-2 py-1 rounded-lg bg-slate-800">✕</button>
             </div>
             
@@ -264,10 +291,12 @@ HTML_CONTENT = """
             <div class="flex border-b border-slate-800 text-xs">
                 <button onclick="switchTab('tab-general')" id="btn-tab-general" class="flex-1 py-2 font-semibold text-cyan-400 border-b-2 border-cyan-400 bg-cyan-500/10 transition-all duration-300">Pengaturan Umum</button>
                 <button onclick="switchTab('tab-ping')" id="btn-tab-ping" class="flex-1 py-2 font-semibold text-slate-400 border-b-2 border-transparent hover:text-slate-200 transition-all duration-300">Ping Tool</button>
+                <button onclick="switchTab('tab-speed')" id="btn-tab-speed" class="flex-1 py-2 font-semibold text-slate-400 border-b-2 border-transparent hover:text-slate-200 transition-all duration-300">Speed Test</button>
+                <button onclick="switchTab('tab-about')" id="btn-tab-about" class="flex-1 py-2 font-semibold text-slate-400 border-b-2 border-transparent hover:text-slate-200 transition-all duration-300">About</button>
             </div>
 
-            <!-- Tab Contents Container (Relative wrapper to prevent layout breaking) -->
-            <div class="relative min-h-[170px]">
+            <!-- Tab Contents Container -->
+            <div class="relative min-h-[410px]">
                 <!-- Tab 1: General Settings -->
                 <div id="tab-general" class="tab-pane absolute inset-x-0 top-0 space-y-3 pt-1 opacity-100 scale-100">
                     <div>
@@ -276,6 +305,36 @@ HTML_CONTENT = """
                             <option value="dark" selected>Gelap (Default)</option>
                             <option value="light">Terang</option>
                         </select>
+                    </div>
+                    <div class="rounded-xl border border-slate-800 bg-slate-950/50 p-3 space-y-2">
+                        <div class="text-[11px] font-semibold text-slate-300">Notifikasi Gangguan Jaringan</div>
+                        <label class="flex items-center gap-2 text-[11px] text-slate-300">
+                            <input id="suppress-tower-popup" type="checkbox" onchange="savePopupPreferences()" class="accent-cyan-500">
+                            Sembunyikan notifikasi saat tower bermasalah
+                        </label>
+                        <label class="flex items-center gap-2 text-[11px] text-slate-300">
+                            <input id="suppress-internet-popup" type="checkbox" onchange="savePopupPreferences()" class="accent-cyan-500">
+                            Sembunyikan notifikasi saat internet bermasalah
+                        </label>
+                        <button onclick="animateButton(this); resetPopupPreferences()" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-semibold px-3 py-2 rounded-lg transition-all">Reset Notifikasi Gangguan</button>
+                        <p class="text-[10px] text-slate-500">Reset mengaktifkan kembali notifikasi gangguan tower dan internet. Notifikasi koneksi pulih tetap aktif.</p>
+                    </div>
+                    <div class="rounded-xl border border-slate-800 bg-slate-950/50 p-3 space-y-2">
+                        <div class="text-[11px] font-semibold text-slate-300">Pembaruan Aplikasi</div>
+                        <label class="text-[10px] text-slate-400 block mb-1">Saluran rilis</label>
+                        <select id="setting-update-channel" onchange="saveUpdatePreferences(); checkForUpdates(true)" class="w-full bg-slate-950 border border-slate-800 text-xs text-slate-200 p-2 rounded-xl focus:outline-none focus:border-cyan-500">
+                            <option value="stable">Stable — rilis resmi</option>
+                            <option value="beta">Beta — pre-release</option>
+                        </select>
+                        <label class="flex items-center gap-2 text-[11px] text-slate-300">
+                            <input id="setting-auto-update-check" type="checkbox" onchange="saveUpdatePreferences()" class="accent-cyan-500">
+                            Pasang update otomatis saat aplikasi dibuka
+                        </label>
+                        <div class="flex gap-2">
+                            <button id="btn-check-update" onclick="checkForUpdates(false)" class="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-semibold px-3 py-2 rounded-lg">🔎 Periksa Update</button>
+                            <button id="btn-install-update" onclick="installAvailableUpdate()" disabled class="flex-1 bg-cyan-700 hover:bg-cyan-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-[10px] font-semibold px-3 py-2 rounded-lg">⬇ Unduh & Pasang</button>
+                        </div>
+                        <p id="update-status" class="text-[10px] text-slate-400">Belum memeriksa update.</p>
                     </div>
                     <div>
                         <label class="text-[11px] font-semibold text-slate-300 block mb-1">Frekuensi Update Data (Refresh Rate)</label>
@@ -293,7 +352,7 @@ HTML_CONTENT = """
                         <label class="text-[11px] font-semibold text-slate-300 block mb-1">Target Host / IP</label>
                         <div class="flex gap-2">
                             <input type="text" id="ping-host" value="1.1.1.1" class="w-full bg-slate-950 border border-slate-800 text-xs text-slate-200 p-2 rounded-xl focus:outline-none focus:border-cyan-500 transition-all">
-                            <button onclick="animateButton(this); runPing()" id="btn-ping" class="bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-2 rounded-xl text-xs font-semibold shrink-0 transition-all active:scale-95">Ping</button>
+                            <button onclick="animateButton(this); runPing(this)" id="btn-ping" class="bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-2 rounded-xl text-xs font-semibold shrink-0 transition-all active:scale-95">Ping</button>
                         </div>
                     </div>
                     <div>
@@ -301,9 +360,109 @@ HTML_CONTENT = """
                         <pre id="ping-output" class="w-full bg-slate-950 border border-slate-800 text-[10px] text-emerald-400 p-2.5 rounded-xl h-24 overflow-y-auto font-mono">Menunggu perintah...</pre>
                     </div>
                 </div>
+
+                <!-- Tab 3: Animated Speed Test -->
+                <div id="tab-speed" class="tab-pane absolute inset-x-0 top-0 space-y-3 pt-1 opacity-0 scale-95 pointer-events-none hidden">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                            <div class="text-sm font-bold text-cyan-300">⚡ Internet Speed Test</div>
+                            <p class="text-[10px] text-slate-400">Tes berurutan: download 30 dtk → upload 30 dtk → latensi 30 dtk, dengan statistik min / rata-rata / maks.</p>
+                        </div>
+                        <button onclick="animateButton(this); runSpeedTest()" id="btn-speed-test" class="bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-xl text-xs font-semibold transition-all active:scale-95">▶ Mulai Speed Test</button>
+                    </div>
+
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+                        <div class="bg-slate-950 border border-slate-800 rounded-xl p-3">
+                            <div class="text-[10px] text-slate-400">DOWNLOAD</div>
+                            <div class="text-xl font-black text-cyan-300"><span id="speed-download">—</span><span class="text-xs font-semibold ml-1">Mbps</span></div>
+                            <div id="speed-download-status" class="text-[9px] text-slate-500">Menunggu tes</div>
+                        </div>
+                        <div class="bg-slate-950 border border-slate-800 rounded-xl p-3">
+                            <div class="text-[10px] text-slate-400">UPLOAD</div>
+                            <div class="text-xl font-black text-violet-300"><span id="speed-upload">—</span><span class="text-xs font-semibold ml-1">Mbps</span></div>
+                            <div id="speed-upload-status" class="text-[9px] text-slate-500">Menunggu tes</div>
+                        </div>
+                        <div class="bg-slate-950 border border-slate-800 rounded-xl p-3">
+                            <div class="text-[10px] text-slate-400">LATENCY</div>
+                            <div class="text-xl font-black text-emerald-300"><span id="speed-latency">—</span><span class="text-xs font-semibold ml-1">ms</span></div>
+                            <div class="text-[9px] text-slate-500">Rata-rata latency</div>
+                        </div>
+                        <div class="bg-slate-950 border border-slate-800 rounded-xl p-3">
+                            <div class="text-[10px] text-slate-400">STATUS</div>
+                            <div id="speed-state" class="text-sm font-bold text-slate-300">Siap</div>
+                            <div id="speed-elapsed" class="text-[9px] text-slate-500">Belum berjalan</div>
+                        </div>
+                    </div>
+
+                    <div class="bg-slate-950/80 border border-slate-800 rounded-xl p-3">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-[11px] font-semibold text-slate-300">Progres Pengujian</span>
+                            <span id="speed-progress-label" class="text-[10px] text-cyan-300">0%</span>
+                        </div>
+                        <div class="h-2 rounded-full bg-slate-800 overflow-hidden">
+                            <div id="speed-progress" class="h-full w-0 rounded-full bg-gradient-to-r from-cyan-500 via-blue-500 to-violet-500 transition-all duration-500"></div>
+                        </div>
+                        <p id="speed-message" class="text-[10px] text-slate-400 mt-2">Tekan tombol untuk memulai pengujian. Tes menggunakan server Cloudflare.</p>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3">
+                            <div class="text-[11px] font-bold text-slate-300 mb-2">Statistik Download (Mbps)</div>
+                            <div class="grid grid-cols-3 gap-2 text-center">
+                                <div><div class="text-[9px] text-slate-500">MIN</div><div id="speed-dl-min" class="text-sm font-bold text-cyan-300">—</div></div>
+                                <div><div class="text-[9px] text-slate-500">RATA-RATA</div><div id="speed-dl-avg" class="text-sm font-bold text-cyan-300">—</div></div>
+                                <div><div class="text-[9px] text-slate-500">MAKS</div><div id="speed-dl-max" class="text-sm font-bold text-cyan-300">—</div></div>
+                            </div>
+                        </div>
+                        <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3">
+                            <div class="text-[11px] font-bold text-slate-300 mb-2">Statistik Upload (Mbps)</div>
+                            <div class="grid grid-cols-3 gap-2 text-center">
+                                <div><div class="text-[9px] text-slate-500">MIN</div><div id="speed-ul-min" class="text-sm font-bold text-violet-300">—</div></div>
+                                <div><div class="text-[9px] text-slate-500">RATA-RATA</div><div id="speed-ul-avg" class="text-sm font-bold text-violet-300">—</div></div>
+                                <div><div class="text-[9px] text-slate-500">MAKS</div><div id="speed-ul-max" class="text-sm font-bold text-violet-300">—</div></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3">
+                        <div class="text-[11px] font-bold text-slate-300 mb-2">Statistik Latensi (ms)</div>
+                        <div class="grid grid-cols-3 gap-2 text-center">
+                            <div><div class="text-[9px] text-slate-500">MIN</div><div id="speed-lat-min" class="text-sm font-bold text-emerald-300">—</div></div>
+                            <div><div class="text-[9px] text-slate-500">RATA-RATA</div><div id="speed-lat-avg" class="text-sm font-bold text-emerald-300">—</div></div>
+                            <div><div class="text-[9px] text-slate-500">MAKS</div><div id="speed-lat-max" class="text-sm font-bold text-emerald-300">—</div></div>
+                        </div>
+                    </div>
+
+                    <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3">
+                        <div class="text-[11px] font-bold text-slate-300 mb-2">Grafik Real-time (Mbps / ms)</div>
+                        <div class="h-44"><canvas id="speedChart"></canvas></div>
+                    </div>
+                </div>
+
+                <!-- Tab 4: About & Update Details -->
+                <div id="tab-about" class="tab-pane absolute inset-x-0 top-0 space-y-3 pt-1 opacity-0 scale-95 pointer-events-none hidden">
+                    <div class="rounded-xl border border-cyan-900/70 bg-cyan-950/20 p-4">
+                        <div class="text-lg font-black tracking-wide text-cyan-300">IRA ZTE MC8501 5G LIVE SIGNAL CHARTS</div>
+                        <div class="text-[11px] text-slate-400 mt-1">Versi aplikasi: <span id="about-app-version" class="text-slate-200 font-semibold">1.1-dev</span></div>
+                        <p class="text-[11px] text-slate-300 mt-3 leading-relaxed">Dashboard desktop untuk memantau parameter sinyal 5G router ZTE MC8501 secara real-time, melihat status tower dan internet, memeriksa latensi, serta menjalankan tes kecepatan jaringan.</p>
+                    </div>
+                    <div class="rounded-xl border border-slate-800 bg-slate-950/50 p-3 space-y-2">
+                        <div class="text-[11px] font-bold text-cyan-300">Sumber & Teknologi</div>
+                        <div class="text-[10px] text-slate-300 leading-relaxed">• Kode sumber dan rilis aplikasi: GitHub <b>TheKingTermux/ira-zte-live-signal-charts</b><br>• Data sinyal: endpoint lokal router ZTE MC8501 (<code>zte_nwinfo_api / nwinfo_get_netinfo</code>)<br>• Grafik: Chart.js<br>• Tampilan: Tailwind CSS<br>• Aplikasi desktop: Python + pywebview<br>• Tes download/upload: endpoint publik Cloudflare Speed Test</div>
+                        <div class="flex flex-wrap gap-2 pt-1">
+                            <button onclick="openExternalUrl('https://github.com/TheKingTermux/ira-zte-live-signal-charts')" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-semibold px-3 py-2 rounded-lg">↗ Repositori GitHub</button>
+                            <button onclick="openExternalUrl('https://github.com/TheKingTermux/ira-zte-live-signal-charts/releases')" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-semibold px-3 py-2 rounded-lg">↗ Semua Release</button>
+                        </div>
+                    </div>
+                    <div class="rounded-xl border border-slate-800 bg-slate-950/50 p-3 space-y-2">
+                        <div class="text-[11px] font-bold text-cyan-300">Pembaruan</div>
+                        <p class="text-[10px] text-slate-400">Pilih kanal Stable untuk rilis reguler atau Beta untuk versi pre-release. Jika pemasangan otomatis aktif, update yang cocok akan diunduh dan dipasang saat aplikasi dibuka. Nonaktifkan opsi di Pengaturan Umum untuk memasang secara manual.</p>
+                        <p id="about-update-details" class="text-[10px] text-slate-400">Belum ada informasi release.</p>
+                    </div>
+                </div>
             </div>
 
-            <div class="pt-2 flex justify-end border-t border-slate-800 mt-[175px]">
+            <div class="pt-2 flex justify-end border-t border-slate-800 mt-4">
                 <button onclick="animateButton(this); toggleSettingsModal()" class="w-full bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold py-2.5 rounded-xl shadow-lg transition-all active:scale-95">Tutup</button>
             </div>
         </div>
@@ -354,8 +513,16 @@ HTML_CONTENT = """
 
         const maxDataPoints = 30;
         let connectionHistory = [];
-        let wasConnected = true;
-        let wasInternetOk = true;
+        // Connection state is debounced so a single timeout does not cause alert/recovery flapping.
+        let wasConnected = null;
+        let wasInternetOk = null;
+        let towerFailCount = 0;
+        let towerSuccessCount = 0;
+        let internetFailCount = 0;
+        let internetSuccessCount = 0;
+        let towerIssueNotified = false;
+        let internetIssueNotified = false;
+        let noticeTimer = null;
         let unreadCount = 0;
         let currentIntervalTime = 1000;
         let pollTimer = null;
@@ -366,6 +533,7 @@ HTML_CONTENT = """
 
         window.addEventListener('pywebviewready', function() {
             startPolling();
+            startPingMonitor();
         });
 
         // Loop polling: tiap siklus membaca currentIntervalTime TERBARU.
@@ -454,8 +622,8 @@ HTML_CONTENT = """
 
         // Clean & Smooth Tab Switcher (No Layout Shifts)
         function switchTab(tabId) {
-            const allTabs = ['tab-general', 'tab-ping'];
-            const allBtns = ['btn-tab-general', 'btn-tab-ping'];
+            const allTabs = ['tab-general', 'tab-ping', 'tab-speed', 'tab-about'];
+            const allBtns = ['btn-tab-general', 'btn-tab-ping', 'btn-tab-speed', 'btn-tab-about'];
 
             allTabs.forEach(id => {
                 let pane = document.getElementById(id);
@@ -511,13 +679,21 @@ HTML_CONTENT = """
             }
         }
 
-        async function runPing() {
-            let host = document.getElementById('ping-host').value.trim();
-            let outputEl = document.getElementById('ping-output');
-            let btn = event.target;
+        async function runPing(btn) {
+            const input = document.getElementById('ping-host');
+            const host = input.value.trim();
+            const outputEl = document.getElementById('ping-output');
 
-            if (!host) {
-                alert('Masukkan host atau IP tujuan ping!');
+            // Client-side validation is for usability; Python validates again securely.
+            const hostnamePattern = /^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)(?:\\.(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?))*$/;
+            const isIPv4 = /^(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)$/.test(host);
+            const isIPv6Like = /^[0-9a-fA-F:]+$/.test(host) && host.includes(':');
+            if (!host || host.length > 253 || host.startsWith('-') || !(isIPv4 || isIPv6Like || hostnamePattern.test(host))) {
+                outputEl.innerText = 'Host/IP tidak valid. Masukkan alamat IP atau nama host yang valid (maksimal 253 karakter).';
+                return;
+            }
+            if (!window.pywebview || !window.pywebview.api) {
+                outputEl.innerText = 'API aplikasi belum siap.';
                 return;
             }
 
@@ -542,20 +718,314 @@ HTML_CONTENT = """
             btn.innerText = 'Ping';
         }
 
+        let speedChartInstance = null;
+        let speedTestRunning = false;
+        const SPEED_PHASE_SECONDS = 30;
+
+        function setSpeedProgress(percent, message) {
+            const value = Math.max(0, Math.min(100, percent));
+            document.getElementById('speed-progress').style.width = value + '%';
+            document.getElementById('speed-progress-label').innerText = Math.round(value) + '%';
+            if (message) document.getElementById('speed-message').innerText = message;
+        }
+
+        function animateNumber(id, target, decimals = 2, duration = 900) {
+            const el = document.getElementById(id);
+            const end = Number(target);
+            if (!Number.isFinite(end)) { el.innerText = '—'; return; }
+            const start = Number.parseFloat(el.innerText.replace(/[^0-9.-]/g, '')) || 0;
+            const began = performance.now();
+            function frame(now) {
+                const t = Math.min(1, (now - began) / duration);
+                const eased = 1 - Math.pow(1 - t, 3);
+                el.innerText = (start + (end - start) * eased).toFixed(decimals);
+                if (t < 1) requestAnimationFrame(frame);
+            }
+            requestAnimationFrame(frame);
+        }
+
+        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+        function getStats(values, decimals = 2) {
+            if (!values.length) return { min: null, max: null, avg: null, samples: [] };
+            return {
+                min: Number(Math.min(...values).toFixed(decimals)),
+                max: Number(Math.max(...values).toFixed(decimals)),
+                avg: Number((values.reduce((a, b) => a + b, 0) / values.length).toFixed(decimals)),
+                samples: values.slice()
+            };
+        }
+
+        function initSpeedChart() {
+            if (speedChartInstance) speedChartInstance.destroy();
+            speedChartInstance = new Chart(document.getElementById('speedChart').getContext('2d'), {
+                type: 'line',
+                data: { labels: [], datasets: [
+                    { label: 'Download (Mbps)', data: [], borderColor: '#22d3ee', backgroundColor: 'rgba(34,211,238,0.10)', fill: true, tension: 0.25, pointRadius: 0, pointHoverRadius: 4, borderWidth: 2, spanGaps: false, yAxisID: 'ySpeed' },
+                    { label: 'Upload (Mbps)', data: [], borderColor: '#a78bfa', backgroundColor: 'rgba(167,139,250,0.08)', fill: true, tension: 0.25, pointRadius: 0, pointHoverRadius: 4, borderWidth: 2, spanGaps: false, yAxisID: 'ySpeed' },
+                    { label: 'Latency (ms)', data: [], borderColor: '#34d399', backgroundColor: 'rgba(52,211,153,0.06)', fill: false, tension: 0.25, pointRadius: 0, pointHoverRadius: 4, borderWidth: 2, spanGaps: false, yAxisID: 'yLatency' }
+                ]},
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    animation: { duration: 180, easing: 'easeOutQuad' },
+                    interaction: { intersect: false, mode: 'index' },
+                    plugins: { legend: { labels: { color: '#cbd5e1', boxWidth: 10, font: { size: 10 } } } },
+                    scales: {
+                        x: { ticks: { color: '#94a3b8', font: { size: 9 }, maxTicksLimit: 10 }, grid: { color: 'rgba(148,163,184,0.08)' }, title: { display: true, text: 'Waktu (detik)', color: '#94a3b8' } },
+                        ySpeed: { type: 'linear', position: 'left', beginAtZero: true, ticks: { color: '#22d3ee', font: { size: 9 } }, grid: { color: 'rgba(148,163,184,0.10)' }, title: { display: true, text: 'Mbps', color: '#22d3ee' } },
+                        yLatency: { type: 'linear', position: 'right', beginAtZero: true, ticks: { color: '#34d399', font: { size: 9 } }, grid: { drawOnChartArea: false }, title: { display: true, text: 'ms', color: '#34d399' } }
+                    }
+                }
+            });
+        }
+
+        function appendSpeedSample(elapsedSeconds, phase, value) {
+            if (!speedChartInstance) return;
+            const label = elapsedSeconds.toFixed(0);
+            const datasets = speedChartInstance.data.datasets;
+            speedChartInstance.data.labels.push(label);
+            datasets.forEach((dataset, index) => dataset.data.push(index === phase ? value : null));
+            // Fixed, monotonically increasing X labels + no shifting avoids the old edge-point artifact.
+            speedChartInstance.update('none');
+        }
+
+        async function runSpeedTest() {
+            if (speedTestRunning) return;
+            if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.run_speed_sample !== 'function') {
+                document.getElementById('speed-state').innerText = 'API tidak tersedia';
+                document.getElementById('speed-message').innerText = 'API speed test belum siap. Tunggu aplikasi selesai dimuat, lalu coba lagi.';
+                return;
+            }
+
+            speedTestRunning = true;
+            const btn = document.getElementById('btn-speed-test');
+            const started = performance.now();
+            const values = { download: [], upload: [], latency: [] };
+            const failures = { download: 0, upload: 0, latency: 0 };
+            const phases = [
+                { key: 'download', label: 'Download', dataset: 0, unit: 'Mbps', statusId: 'speed-download-status' },
+                { key: 'upload', label: 'Upload', dataset: 1, unit: 'Mbps', statusId: 'speed-upload-status' },
+                { key: 'latency', label: 'Latensi', dataset: 2, unit: 'ms', statusId: 'speed-latency-status' }
+            ];
+            btn.disabled = true;
+            btn.innerText = '⏳ Tes download → upload → latensi…';
+            document.getElementById('speed-state').innerText = 'Menghubungkan ke server speed test…';
+            document.getElementById('speed-message').innerText =
+                'Tes akan dimulai setelah server Cloudflare merespons. Setiap sampel memiliki batas waktu dan error akan ditampilkan di sini.';
+            document.getElementById('speed-state').className = 'text-sm font-bold text-cyan-300';
+            document.getElementById('speed-elapsed').innerText = '0.0 / 90 detik';
+            ['speed-download','speed-upload','speed-latency','speed-dl-min','speed-dl-avg','speed-dl-max','speed-ul-min','speed-ul-avg','speed-ul-max','speed-lat-min','speed-lat-avg','speed-lat-max'].forEach(id => document.getElementById(id).innerText = '—');
+            document.getElementById('speed-download-status').innerText = 'Menunggu giliran';
+            document.getElementById('speed-upload-status').innerText = 'Menunggu giliran';
+            document.getElementById('speed-latency-status').innerText = 'Menunggu giliran';
+            initSpeedChart();
+
+            const elapsedTimer = setInterval(() => {
+                const elapsed = (performance.now() - started) / 1000;
+                document.getElementById('speed-elapsed').innerText = elapsed.toFixed(1) + ' / 90 detik';
+            }, 100);
+
+            try {
+                for (let phaseIndex = 0; phaseIndex < phases.length; phaseIndex++) {
+                    const phase = phases[phaseIndex];
+                    const phaseStarted = performance.now();
+                    document.getElementById('speed-state').innerText = phase.label + ' berlangsung';
+                    document.getElementById(phase.statusId).innerText = 'Memulai pengukuran 30 detik…';
+                    setSpeedProgress((phaseIndex / 3) * 100, `Fase ${phaseIndex + 1}/3: ${phase.label} · 30 detik`);
+                    let nextSampleAt = phaseStarted;
+
+                    while ((performance.now() - phaseStarted) < SPEED_PHASE_SECONDS * 1000) {
+                        const callStarted = performance.now();
+                        const remainingPhase = SPEED_PHASE_SECONDS * 1000 - (callStarted - phaseStarted);
+                        try {
+                            document.getElementById(phase.statusId).innerText =
+                                `Menghubungi server untuk ${phase.label.toLowerCase()}…`;
+                            document.getElementById('speed-state').innerText =
+                                `${phase.label}: mengukur sampel ${values[phase.key].length + 1}`;
+                            // Python requests have explicit connect/read timeouts. Avoid Promise.race here:
+                            // abandoning the JS promise would leave the underlying network request running.
+                            const result = await window.pywebview.api.run_speed_sample(phase.key);
+                            if (!result || !result.success || !Number.isFinite(Number(result.value))) {
+                                throw new Error((result && result.error) || 'Hasil sampel tidak valid');
+                            }
+                            const value = Number(result.value);
+                            values[phase.key].push(value);
+                            appendSpeedSample((performance.now() - started) / 1000, phase.dataset, value);
+                            const stats = getStats(values[phase.key], phase.key === 'latency' ? 1 : 2);
+                            const mainId = phase.key === 'download' ? 'speed-download' : phase.key === 'upload' ? 'speed-upload' : 'speed-latency';
+                            animateNumber(mainId, stats.avg, phase.key === 'latency' ? 1 : 2, 220);
+                            document.getElementById(phase.statusId).innerText = `${values[phase.key].length} sampel · ${failures[phase.key]} gagal`;
+                            setSpeedProgress(((phaseIndex * SPEED_PHASE_SECONDS + Math.min(SPEED_PHASE_SECONDS, (performance.now() - phaseStarted) / 1000)) / 90) * 100,
+                                `${phase.label}: ${value.toFixed(phase.key === 'latency' ? 1 : 2)} ${phase.unit} · ${values[phase.key].length} sampel`);
+                        } catch (sampleError) {
+                            failures[phase.key]++;
+                            document.getElementById(phase.statusId).innerText = `Gagal ${failures[phase.key]}x · mencoba lagi`;
+                            document.getElementById('speed-message').innerText =
+                                `${phase.label}: ${sampleError.message || sampleError}. Pastikan internet aktif dan akses ke speed.cloudflare.com tidak diblokir.`;
+                        }
+                        nextSampleAt = Math.max(nextSampleAt + 1000, callStarted + 1000);
+                        const remaining = Math.min(nextSampleAt - performance.now(), remainingPhase);
+                        if (remaining > 0 && (performance.now() - phaseStarted) < SPEED_PHASE_SECONDS * 1000) await sleep(remaining);
+                    }
+                    // Update phase status immediately; don't leave the UI in a "preparing" state.
+                    document.getElementById('speed-state').innerText = phaseIndex < 2 ? `Menyiapkan ${phases[phaseIndex + 1].label.toLowerCase()}` : 'Menyelesaikan hasil';
+                }
+
+                const dl = getStats(values.download, 2);
+                const ul = getStats(values.upload, 2);
+                const lat = getStats(values.latency, 1);
+                if (!dl.samples.length || !ul.samples.length || !lat.samples.length) {
+                    throw new Error('Tidak ada sampel yang berhasil untuk salah satu fase. Periksa koneksi internet dan coba lagi.');
+                }
+                for (const [id, stats, decimals] of [
+                    ['speed-download', dl, 2], ['speed-upload', ul, 2], ['speed-latency', lat, 1]
+                ]) animateNumber(id, stats.avg, decimals, 650);
+                for (const [prefix, stats] of [['speed-dl', dl], ['speed-ul', ul], ['speed-lat', lat]]) {
+                    const decimals = prefix === 'speed-lat' ? 1 : 2;
+                    animateNumber(prefix + '-min', stats.min, decimals, 650);
+                    animateNumber(prefix + '-avg', stats.avg, decimals, 650);
+                    animateNumber(prefix + '-max', stats.max, decimals, 650);
+                }
+                document.getElementById('speed-download-status').innerText = `${dl.samples.length} sampel selesai · ${failures.download} gagal`;
+                document.getElementById('speed-upload-status').innerText = `${ul.samples.length} sampel selesai · ${failures.upload} gagal`;
+                document.getElementById('speed-latency-status').innerText = `${lat.samples.length} sampel selesai · ${failures.latency} gagal`;
+                document.getElementById('speed-state').innerText = 'Selesai';
+                document.getElementById('speed-state').className = 'text-sm font-bold text-emerald-400';
+                setSpeedProgress(100, 'Selesai: download 30 dtk → upload 30 dtk → latensi 30 dtk.');
+            } catch (error) {
+                document.getElementById('speed-state').innerText = 'Gagal';
+                document.getElementById('speed-state').className = 'text-sm font-bold text-red-400';
+                setSpeedProgress(100, 'Pengujian dihentikan: ' + (error.message || error));
+            } finally {
+                clearInterval(elapsedTimer);
+                speedTestRunning = false;
+                btn.disabled = false;
+                btn.innerText = '▶ Ulangi Speed Test';
+            }
+        }
+
         function animateButton(btn) {
             btn.style.transform = 'scale(0.9)';
             setTimeout(() => btn.style.transform = 'scale(1)', 150);
         }
 
         function loadSettings() {
-            let savedTheme = localStorage.getItem('router_theme') || 'dark';
-            let savedFreq = localStorage.getItem('router_freq') || '1000';
+            const savedTheme = localStorage.getItem('router_theme') || 'dark';
+            const allowedFrequencies = ['1000', '2000', '4000'];
+            const storedFreq = localStorage.getItem('router_freq') || '1000';
+            const savedFreq = allowedFrequencies.includes(storedFreq) ? storedFreq : '1000';
 
             document.getElementById('setting-theme').value = savedTheme;
             changeTheme(savedTheme, false);
-
             document.getElementById('setting-freq').value = savedFreq;
-            currentIntervalTime = parseInt(savedFreq);
+            currentIntervalTime = Number.parseInt(savedFreq, 10);
+            document.getElementById('suppress-tower-popup').checked = localStorage.getItem('suppress_tower_popup') === 'true';
+            document.getElementById('suppress-internet-popup').checked = localStorage.getItem('suppress_internet_popup') === 'true';
+            const updateChannel = localStorage.getItem('update_channel') === 'beta' ? 'beta' : 'stable';
+            document.getElementById('setting-update-channel').value = updateChannel;
+            document.getElementById('setting-auto-update-check').checked = localStorage.getItem('auto_update_check') !== 'false';
+            document.getElementById('about-app-version').innerText = APP_VERSION_JS;
+            if (document.getElementById('setting-auto-update-check').checked) {
+                setTimeout(() => checkForUpdates(true), 1800);
+            }
+        }
+
+        const APP_VERSION_JS = '1.1-dev';
+        let availableUpdate = null;
+        let updateInstallInProgress = false;
+
+        function saveUpdatePreferences() {
+            localStorage.setItem('update_channel', document.getElementById('setting-update-channel').value);
+            localStorage.setItem('auto_update_check', String(document.getElementById('setting-auto-update-check').checked));
+        }
+
+        function setUpdateStatus(message, isError = false) {
+            const el = document.getElementById('update-status');
+            el.innerText = message;
+            el.className = 'text-[10px] ' + (isError ? 'text-orange-300' : 'text-slate-400');
+        }
+
+        async function checkForUpdates(silent = false) {
+            const btn = document.getElementById('btn-check-update');
+            const installBtn = document.getElementById('btn-install-update');
+            const channel = document.getElementById('setting-update-channel').value;
+            if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.check_for_updates !== 'function') {
+                setUpdateStatus('API updater belum siap.');
+                return;
+            }
+            if (btn) { btn.disabled = true; btn.innerText = 'Memeriksa…'; }
+            if (!silent) setUpdateStatus('Menghubungi GitHub untuk memeriksa release…');
+            try {
+                const result = await window.pywebview.api.check_for_updates(channel);
+                availableUpdate = result && result.update_available ? result : null;
+                if (availableUpdate) {
+                    const versionText = `${result.name || result.tag_name} (${channel === 'beta' ? 'Beta' : 'Stable'})`;
+                    setUpdateStatus(`Update tersedia: ${versionText}. Klik Unduh & Pasang untuk menerapkan.`);
+                    document.getElementById('about-update-details').innerText = `Tersedia ${versionText}. ${result.published_at ? 'Dipublikasikan: ' + result.published_at : ''}`;
+                    installBtn.disabled = false;
+                    if (silent && document.getElementById('setting-auto-update-check').checked && !updateInstallInProgress) {
+                        setUpdateStatus(`Update ${versionText} ditemukan. Memasang otomatis…`);
+                        setTimeout(() => installAvailableUpdate(), 600);
+                    }
+                } else if (result && result.error) {
+                    setUpdateStatus(result.error, true);
+                    document.getElementById('about-update-details').innerText = result.error;
+                    installBtn.disabled = true;
+                } else {
+                    const msg = result && result.message ? result.message : 'Aplikasi sudah menggunakan versi terbaru untuk kanal ini.';
+                    setUpdateStatus(msg);
+                    document.getElementById('about-update-details').innerText = msg;
+                    installBtn.disabled = true;
+                }
+            } catch (error) {
+                setUpdateStatus('Gagal memeriksa update: ' + (error.message || error), true);
+            } finally {
+                if (btn) { btn.disabled = false; btn.innerText = '🔎 Periksa Update'; }
+            }
+        }
+
+        async function installAvailableUpdate() {
+            if (!availableUpdate || !window.pywebview || !window.pywebview.api || updateInstallInProgress) return;
+            updateInstallInProgress = true;
+            const btn = document.getElementById('btn-install-update');
+            btn.disabled = true;
+            btn.innerText = 'Memasang…';
+            setUpdateStatus('Mengunduh update dan menyiapkan restart…');
+            try {
+                const result = await window.pywebview.api.install_update(availableUpdate.tag_name, document.getElementById('setting-update-channel').value);
+                if (!result || !result.success) throw new Error((result && result.error) || 'Pemasangan update gagal.');
+                setUpdateStatus('Update terpasang. Aplikasi akan dimulai ulang…');
+            } catch (error) {
+                setUpdateStatus('Gagal memasang update: ' + (error.message || error), true);
+                updateInstallInProgress = false;
+                btn.disabled = false;
+                btn.innerText = '⬇ Unduh & Pasang';
+            }
+        }
+
+        function openExternalUrl(url) {
+            if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.open_url === 'function') {
+                window.pywebview.api.open_url(url);
+            } else {
+                window.open(url, '_blank');
+            }
+        }
+
+        function savePopupPreferences() {
+            localStorage.setItem('suppress_tower_popup', String(document.getElementById('suppress-tower-popup').checked));
+            localStorage.setItem('suppress_internet_popup', String(document.getElementById('suppress-internet-popup').checked));
+        }
+
+        function resetPopupPreferences() {
+            localStorage.removeItem('suppress_tower_popup');
+            localStorage.removeItem('suppress_internet_popup');
+            document.getElementById('suppress-tower-popup').checked = false;
+            document.getElementById('suppress-internet-popup').checked = false;
+        }
+
+        function shouldShowIssuePopup(kind) {
+            const key = kind === 'tower' ? 'suppress_tower_popup' : 'suppress_internet_popup';
+            return localStorage.getItem(key) !== 'true';
         }
 
         function openModal(modalId, boxId) {
@@ -692,10 +1162,7 @@ HTML_CONTENT = """
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    animation: {
-                        duration: 300,
-                        easing: 'easeOutQuad'
-                    },
+                    animation: { duration: 260, easing: 'easeOutQuart' },
                     plugins: { legend: { display: false } },
                     scales: {
                         x: { display: false },
@@ -712,6 +1179,9 @@ HTML_CONTENT = """
         const chartRssi = createChart(document.getElementById('chartRssi').getContext('2d'), '#3b82f6');
         const chartRsrq = createChart(document.getElementById('chartRsrq').getContext('2d'), '#f97316');
         const chartSinr = createChart(document.getElementById('chartSinr').getContext('2d'), '#10b981');
+        const chartPing = createChart(document.getElementById('chartPing').getContext('2d'), '#e879f9');
+        let pingMonitorTimer = null;
+        let pingMonitorBusy = false;
 
         function getStatusInfo(type, val, isConnected) {
             if (!isConnected) {
@@ -743,6 +1213,78 @@ HTML_CONTENT = """
             return { text: '-', color: 'bg-slate-500', textCol: 'text-slate-400' };
         }
 
+        function startPingMonitor() {
+            if (pingMonitorTimer) clearInterval(pingMonitorTimer);
+            const samplePing = async () => {
+                if (pingMonitorBusy || !window.pywebview || !window.pywebview.api || !window.pywebview.api.get_ping_latency) return;
+                pingMonitorBusy = true;
+                try {
+                    const result = await window.pywebview.api.get_ping_latency();
+                    const valueEl = document.getElementById('val-ping');
+                    const textEl = document.getElementById('text-ping');
+                    const dotEl = document.getElementById('dot-ping');
+                    if (result && result.success && Number.isFinite(Number(result.value))) {
+                        const value = Number(result.value);
+                        valueEl.innerText = value.toFixed(1) + ' ms';
+                        textEl.innerText = value < 80 ? 'Bagus' : value < 150 ? 'Sedang' : 'Tinggi';
+                        textEl.className = 'font-semibold ' + (value < 80 ? 'text-emerald-400' : value < 150 ? 'text-amber-400' : 'text-orange-400');
+                        dotEl.className = 'h-1.5 w-1.5 rounded-full ' + (value < 80 ? 'bg-emerald-400' : value < 150 ? 'bg-amber-400' : 'bg-orange-400');
+                        if (chartPing.data.labels.length >= maxDataPoints) {
+                            chartPing.data.labels.shift();
+                            chartPing.data.datasets[0].data.shift();
+                        }
+                        chartPing.data.labels.push(new Date().toLocaleTimeString('id-ID'));
+                        chartPing.data.datasets[0].data.push(value);
+                        chartPing.update();
+                    } else {
+                        valueEl.innerText = '— ms';
+                        textEl.innerText = 'Tidak tersedia';
+                        textEl.className = 'font-semibold text-orange-400';
+                        dotEl.className = 'h-1.5 w-1.5 rounded-full bg-orange-400';
+                    }
+                } catch (error) {
+                    document.getElementById('val-ping').innerText = '— ms';
+                    document.getElementById('text-ping').innerText = 'Tidak tersedia';
+                } finally {
+                    pingMonitorBusy = false;
+                }
+            };
+            samplePing();
+            pingMonitorTimer = setInterval(samplePing, 5000);
+        }
+
+        function showConnectionNotice(kind, message, autoHideMs = 0) {
+            const banner = document.getElementById('floating-alert');
+            const text = document.getElementById('floating-alert-text');
+            if (!banner || !text) return;
+
+            if (noticeTimer) {
+                clearTimeout(noticeTimer);
+                noticeTimer = null;
+            }
+            banner.classList.remove(
+                'bg-orange-600/90', 'border-orange-400',
+                'bg-emerald-600/90', 'border-emerald-400',
+                'bg-cyan-600/90', 'border-cyan-400',
+                'hidden', 'animate-bounce'
+            );
+            if (kind === 'recovered') {
+                banner.classList.add('bg-emerald-600/90', 'border-emerald-400');
+            } else if (kind === 'info') {
+                banner.classList.add('bg-cyan-600/90', 'border-cyan-400');
+            } else {
+                banner.classList.add('bg-orange-600/90', 'border-orange-400');
+            }
+            banner.classList.add('flex');
+            text.innerText = message;
+            if (autoHideMs > 0) {
+                noticeTimer = setTimeout(() => {
+                    banner.classList.add('hidden');
+                    noticeTimer = null;
+                }, autoHideMs);
+            }
+        }
+
         function updateUI(data) {
             const now = new Date();
             const hours = String(now.getHours()).padStart(2, '0');
@@ -750,58 +1292,113 @@ HTML_CONTENT = """
             const seconds = String(now.getSeconds()).padStart(2, '0');
             const nowTime = `${hours}:${minutes}:${seconds}`;
 
-            const signalBar = parseInt(data.signalbar);
-            const isConnected = !isNaN(signalBar) && signalBar > 0;
-            const internetOk = data.internet_ok !== false;
+            const parsedSignalBar = Number.parseInt(data.signalbar, 10);
+            const rawTowerConnected = Number.isFinite(parsedSignalBar) && parsedSignalBar > 0;
+            const rawInternetOk = data.internet_ok === true;
 
             const towerStatusEl = document.getElementById('tower-status-val');
             const internetStatusEl = document.getElementById('internet-status-val');
             const floatingAlert = document.getElementById('floating-alert');
-            const floatingAlertText = document.getElementById('floating-alert-text');
+
+            // First sample establishes baseline without a false "recovered" alert.
+            if (wasConnected === null) {
+                wasConnected = rawTowerConnected;
+                wasInternetOk = rawTowerConnected && rawInternetOk;
+                towerSuccessCount = rawTowerConnected ? 1 : 0;
+                towerFailCount = rawTowerConnected ? 0 : 1;
+                internetSuccessCount = wasInternetOk ? 1 : 0;
+                internetFailCount = wasInternetOk ? 0 : 1;
+                if (!wasConnected) {
+                    towerIssueNotified = true;
+                    if (shouldShowIssuePopup('tower')) {
+                        showConnectionNotice('issue', '⚠️ GANGGUAN TOWER: sinyal tower tidak terdeteksi.');
+                    }
+                } else if (!wasInternetOk) {
+                    internetIssueNotified = true;
+                    if (shouldShowIssuePopup('internet')) {
+                        showConnectionNotice('issue', '🌐 GANGGUAN INTERNET: tower tersambung, akses internet gagal.');
+                    }
+                }
+            } else {
+                // Require repeated readings before changing state; this prevents transient request
+                // failures from alternating between "gangguan" and "kembali normal".
+                if (rawTowerConnected) {
+                    towerSuccessCount++;
+                    towerFailCount = 0;
+                    if (!wasConnected && towerSuccessCount >= 3) {
+                        wasConnected = true;
+                        addHistoryLog('Tower Kembali Normal', nowTime);
+                        playAlertSound();
+                        if (towerIssueNotified) {
+                            showConnectionNotice('recovered', '✅ TOWER KEMBALI NORMAL.', 9000);
+                        }
+                        towerIssueNotified = false;
+                    }
+                } else {
+                    towerFailCount++;
+                    towerSuccessCount = 0;
+                    if (wasConnected && towerFailCount >= 3) {
+                        wasConnected = false;
+                        wasInternetOk = false;
+                        addHistoryLog('Tower Terputus', nowTime);
+                        playAlertSound();
+                        towerIssueNotified = true;
+                        if (shouldShowIssuePopup('tower')) {
+                            showConnectionNotice('issue', '⚠️ GANGGUAN TOWER: koneksi tower terputus.');
+                        }
+                    }
+                }
+
+                if (!wasConnected) {
+                    wasInternetOk = false;
+                    // Start a fresh internet-failure debounce after the tower is back.
+                    internetFailCount = 0;
+                    internetSuccessCount = 0;
+                } else if (rawInternetOk) {
+                    internetSuccessCount++;
+                    internetFailCount = 0;
+                    if (!wasInternetOk && internetSuccessCount >= 3) {
+                        wasInternetOk = true;
+                        if (internetIssueNotified) {
+                            addHistoryLog('Internet Kembali Normal', nowTime);
+                            playAlertSound();
+                            showConnectionNotice('recovered', '✅ INTERNET KEMBALI NORMAL.', 9000);
+                        }
+                        internetIssueNotified = false;
+                    }
+                } else {
+                    internetFailCount++;
+                    internetSuccessCount = 0;
+                    if (internetFailCount >= 3 && !internetIssueNotified) {
+                        wasInternetOk = false;
+                        internetIssueNotified = true;
+                        addHistoryLog('Internet Bermasalah', nowTime);
+                        playAlertSound();
+                        if (shouldShowIssuePopup('internet')) {
+                            showConnectionNotice('issue', '🌐 GANGGUAN INTERNET: tower aktif, tetapi akses internet gagal.');
+                        }
+                    }
+                }
+            }
+
+            // Keep the visible state tied to the debounced state, not one transient request.
+            const isConnected = wasConnected === true;
+            const internetOk = isConnected && wasInternetOk === true;
 
             if (!isConnected) {
                 towerStatusEl.innerText = 'Terputus';
                 towerStatusEl.className = 'text-[11px] font-bold text-orange-500 mt-0.5 truncate';
-                floatingAlertText.innerText = '⚠️ KONEKSI TOWER TERPUTUS!';
-                floatingAlert.classList.remove('hidden');
-
-                if (wasConnected) {
-                    addHistoryLog('Tower Terputus', nowTime);
-                    wasConnected = false;
-                    playAlertSound();
-                    document.getElementById('modal-title-disc').innerText = 'KONEKSI TOWER TERPUTUS!';
-                    document.getElementById('modal-desc-disc').innerText = 'Sinyal bar terdeteksi 0 atau terputus dari jaringan utama.';
-                    openModal('disconnectModal', 'disconnectBox');
-                }
-            } else if (!internetOk) {
-                towerStatusEl.innerText = 'Tersambung';
-                towerStatusEl.className = 'text-[11px] font-bold text-emerald-400 mt-0.5 truncate';
-                internetStatusEl.innerText = 'Bermasalah';
+                internetStatusEl.innerText = 'Tidak tersedia';
                 internetStatusEl.className = 'text-[11px] font-bold text-orange-500 mt-0.5 truncate';
-                
-                floatingAlertText.innerText = '🌐 INTERNET BERMASALAH (Tower Aktif, Tidak Ada Akses Internet)!';
-                floatingAlert.classList.remove('hidden');
-
-                if (wasInternetOk) {
-                    addHistoryLog('Internet Bermasalah', nowTime);
-                    wasInternetOk = false;
-                    playAlertSound();
-                    document.getElementById('modal-title-disc').innerText = 'INTERNET BERMASALAH!';
-                    document.getElementById('modal-desc-disc').innerText = 'Status tower tersambung (Signal Bar > 0), tetapi tidak ada koneksi internet yang dapat dijangkau.';
-                    openModal('disconnectModal', 'disconnectBox');
-                }
             } else {
                 towerStatusEl.innerText = 'Tersambung';
                 towerStatusEl.className = 'text-[11px] font-bold text-emerald-400 mt-0.5 truncate';
-                internetStatusEl.innerText = 'Normal';
-                internetStatusEl.className = 'text-[11px] font-bold text-emerald-400 mt-0.5 truncate';
-                floatingAlert.classList.add('hidden');
-                
-                if (!wasConnected || !wasInternetOk) {
-                    addHistoryLog('Jaringan Normal Kembali', nowTime);
-                    wasConnected = true;
-                    wasInternetOk = true;
-                    openModal('reconnectModal', 'reconnectBox');
+                if (internetOk) {
+                    internetStatusEl.innerText = 'Normal';
+                    internetStatusEl.className = 'text-[11px] font-bold text-emerald-400 mt-0.5 truncate';
+                } else {
+                    internetStatusEl.innerText = 'Bermasalah';
+                    internetStatusEl.className = 'text-[11px] font-bold text-orange-500 mt-0.5 truncate';
                 }
             }
 
@@ -843,6 +1440,7 @@ HTML_CONTENT = """
                 }
                 chart.data.labels.push(nowTime);
                 chart.data.datasets[0].data.push(val);
+                // Keep a short smooth transition; the fixed-size history prevents runaway points.
                 chart.update();
             }
 
@@ -868,10 +1466,16 @@ HTML_CONTENT = """
                 let res = await window.pywebview.api.get_router_data();
                 if (res && Object.keys(res).length > 0) {
                     updateUI(res);
+                } else {
+                    updateUI({ signalbar: "0", internet_ok: false });
+                    const connEl = document.getElementById('status-conn');
+                    connEl.innerText = 'Router tidak merespons';
+                    connEl.className = "text-[11px] font-medium bg-red-950/40 border border-red-500/30 text-red-400 px-3 py-1 rounded-xl shadow-inner";
                 }
             } catch (err) {
                 console.error("Gagal ambil data:", err);
-                let connEl = document.getElementById('status-conn');
+                updateUI({ signalbar: "0", internet_ok: false });
+                const connEl = document.getElementById('status-conn');
                 connEl.innerText = "Terputus...";
                 connEl.className = "text-[11px] font-medium bg-red-950/40 border border-red-500/30 text-red-400 px-3 py-1 rounded-xl shadow-inner";
             }
@@ -920,23 +1524,307 @@ class Api:
         except Exception as e:
             print(f"[ERROR TOWER] {e}")
 
+        # Do not report internet as normal if router telemetry/tower signal is unavailable.
         try:
-            requests.get("http://1.1.1.1", timeout=1.5)
-            internet_ok = True
-        except Exception:
+            signal_bar = int(str(data.get("signalbar", "0")).strip())
+        except (TypeError, ValueError):
+            signal_bar = 0
+
+        if signal_bar > 0:
+            # Check two independent HTTPS endpoints. A temporary failure or block on one
+            # provider should not falsely mark the whole internet connection as down.
+            internet_ok = False
+            probes = (
+                "https://www.cloudflare.com/cdn-cgi/trace",
+                "https://www.google.com/generate_204",
+            )
+            for probe_url in probes:
+                try:
+                    response = requests.get(
+                        probe_url,
+                        headers={"Cache-Control": "no-cache"},
+                        timeout=(1.5, 2.0),
+                    )
+                    response.raise_for_status()
+                    internet_ok = True
+                    break
+                except requests.exceptions.RequestException:
+                    continue
+        else:
             internet_ok = False
 
         data["internet_ok"] = internet_ok
         return data
 
+    @staticmethod
+    def _valid_ping_host(host):
+        """Accept only IP addresses or conventional DNS hostnames."""
+        import ipaddress
+        import re
+
+        if not isinstance(host, str):
+            return False
+        host = host.strip()
+        if not host or len(host) > 253 or host.startswith('-'):
+            return False
+        try:
+            ipaddress.ip_address(host)
+            return True
+        except ValueError:
+            if re.fullmatch(r"[0-9.]+", host):
+                return False
+
+        # DNS labels: 1-63 chars, alphanumeric ends, hyphens only internally.
+        hostname_pattern = re.compile(
+            r"(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)"
+            r"(?:\.(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?))*\.?$"
+        )
+        return bool(hostname_pattern.fullmatch(host))
+
     def run_ping(self, host="1.1.1.1"):
+        if not self._valid_ping_host(host):
+            return {"success": False, "output": "Host/IP tidak valid. Gunakan alamat IP atau nama host DNS yang valid (maksimal 253 karakter)."}
+        host = host.strip()
         try:
             param = "-n" if platform.system().lower() == "windows" else "-c"
             command = ["ping", param, "4", host]
-            output = subprocess.check_output(command, stderr=subprocess.STDOUT, universal_newlines=True, timeout=10)
-            return {"success": True, "output": output}
+            completed = subprocess.run(
+                command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, timeout=20, check=False, shell=False
+            )
+            output = completed.stdout or ""
+            if completed.returncode == 0:
+                return {"success": True, "output": output}
+            return {"success": False, "output": output or f"Ping keluar dengan kode {completed.returncode}."}
+        except subprocess.TimeoutExpired as e:
+            partial = e.stdout or ""
+            if isinstance(partial, bytes):
+                partial = partial.decode(errors="replace")
+            return {"success": False, "output": f"Ping timeout.\n{partial}"}
         except Exception as e:
             return {"success": False, "output": str(e)}
+
+    def get_ping_latency(self):
+        """Measure HTTPS round-trip latency to Cloudflare (not ICMP ping)."""
+        try:
+            started = time.perf_counter()
+            response = requests.get(
+                f"https://www.cloudflare.com/cdn-cgi/trace?_={time.time_ns()}",
+                timeout=(1.5, 2.0)
+            )
+            response.raise_for_status()
+            return {"success": True, "value": round((time.perf_counter() - started) * 1000, 1)}
+        except Exception as e:
+            return {"success": False, "error": f"{type(e).__name__}: {e}"}
+
+    @staticmethod
+    def _release_version_key(tag):
+        import re
+        numbers = re.findall(r"\d+", str(tag or ""))
+        return tuple(int(n) for n in numbers) if numbers else (0,)
+
+    def _get_release(self, channel):
+        channel = "beta" if channel == "beta" else "stable"
+        response = requests.get(
+            GITHUB_RELEASES_API,
+            headers={"Accept": "application/vnd.github+json", "User-Agent": "IRA-ZTE-Live-Signal-Charts"},
+            timeout=(3, 8),
+        )
+        response.raise_for_status()
+        releases = response.json()
+        if not isinstance(releases, list):
+            raise RuntimeError("Respons GitHub Releases tidak valid.")
+        candidates = [
+            release for release in releases
+            if isinstance(release, dict) and not release.get("draft", False)
+            and (bool(release.get("prerelease")) if channel == "beta" else not bool(release.get("prerelease")))
+        ]
+        if not candidates:
+            return None
+        # GitHub returns releases newest-first; sort defensively by published date.
+        candidates.sort(key=lambda r: str(r.get("published_at") or r.get("created_at") or ""), reverse=True)
+        return candidates[0]
+
+    def check_for_updates(self, channel="stable"):
+        try:
+            release = self._get_release(channel)
+            if release is None:
+                kind = "beta/pre-release" if channel == "beta" else "stable"
+                return {"update_available": False, "message": f"Belum ada release {kind} yang dipublikasikan di GitHub."}
+            tag = str(release.get("tag_name") or "").strip()
+            if not tag:
+                return {"update_available": False, "error": "Release ditemukan tetapi tidak memiliki tag versi."}
+            assets = release.get("assets") or []
+            script_asset = next((a for a in assets if str(a.get("name", "")).lower() in {
+                "router_app.py", "ira_zte_speed_test_stable.py", "ira-zte-live-signal-charts.py", "app.py"
+            }), None)
+            current_key = self._release_version_key(APP_VERSION)
+            remote_key = self._release_version_key(tag)
+            is_newer = remote_key > current_key or (remote_key == current_key and tag.lower() != APP_VERSION.lower())
+            can_install = bool(is_newer and script_asset)
+            return {
+                "update_available": can_install,
+                "current_version": APP_VERSION,
+                "tag_name": tag,
+                "name": release.get("name") or tag,
+                "body": release.get("body") or "",
+                "published_at": release.get("published_at"),
+                "html_url": release.get("html_url"),
+                "channel": "beta" if release.get("prerelease") else "stable",
+                "asset_name": script_asset.get("name") if script_asset else None,
+                "asset_url": script_asset.get("browser_download_url") if script_asset else None,
+                "message": ("Update tersedia, tetapi release belum menyertakan file Python aplikasi yang didukung. Tambahkan router_app.py sebagai release asset." if is_newer and not script_asset else "Aplikasi sudah menggunakan versi terbaru untuk kanal ini.") if not is_newer or not script_asset else "Update tersedia.",
+            }
+        except requests.exceptions.RequestException as e:
+            return {"update_available": False, "error": f"Tidak dapat menghubungi GitHub: {type(e).__name__}: {e}"}
+        except Exception as e:
+            return {"update_available": False, "error": f"Gagal memeriksa release: {type(e).__name__}: {e}"}
+
+    def install_update(self, tag_name, channel="stable"):
+        """Download a Python release asset, replace this script, then restart the app."""
+        try:
+            release = self._get_release(channel)
+            if not release or str(release.get("tag_name")) != str(tag_name):
+                return {"success": False, "error": "Release berubah sejak pemeriksaan. Periksa update kembali."}
+            allowed_names = {"router_app.py", "ira_zte_speed_test_stable.py", "ira-zte-live-signal-charts.py", "app.py"}
+            asset = next((a for a in (release.get("assets") or []) if str(a.get("name", "")).lower() in allowed_names), None)
+            if not asset or not asset.get("browser_download_url"):
+                return {"success": False, "error": "Release ini belum memiliki asset Python aplikasi. Tambahkan router_app.py ke release GitHub."}
+
+            current_script = Path(__file__).resolve()
+            download_url = asset["browser_download_url"]
+            response = requests.get(download_url, headers={"User-Agent": "IRA-ZTE-Live-Signal-Charts"}, timeout=(5, 30))
+            response.raise_for_status()
+            new_source = response.content
+            if len(new_source) < 1000 or b"class Api" not in new_source or b"HTML_CONTENT" not in new_source:
+                return {"success": False, "error": "File release tidak tampak seperti source aplikasi yang valid; file tidak diganti."}
+
+            # Stamp the installed version so the same release is not offered repeatedly.
+            import re
+            decoded_source = new_source.decode("utf-8-sig")
+            version_assignment = f'APP_VERSION = "{tag_name}"'
+            decoded_source, replacements = re.subn(
+                r'^APP_VERSION\s*=\s*["\'][^"\']*["\']',
+                version_assignment,
+                decoded_source,
+                count=1,
+                flags=re.MULTILINE,
+            )
+            decoded_source, js_replacements = re.subn(
+                r"^\s*const APP_VERSION_JS = ['\"][^'\"]*['\"];",
+                f"        const APP_VERSION_JS = '{tag_name}';",
+                decoded_source,
+                count=1,
+                flags=re.MULTILINE,
+            )
+            if replacements != 1 or js_replacements != 1:
+                return {"success": False, "error": "Source release tidak memiliki penanda versi yang didukung; file tidak diganti."}
+
+            # Compile downloaded source before touching the current application.
+            compile(decoded_source, str(current_script), "exec")
+            temp_path = current_script.with_suffix(current_script.suffix + ".update")
+            temp_path.write_text(decoded_source, encoding="utf-8")
+            os.replace(temp_path, current_script)
+            threading.Timer(1.2, self._restart_after_update, args=(str(current_script),)).start()
+            return {"success": True, "version": tag_name, "message": "Update terpasang; aplikasi akan dimulai ulang."}
+        except Exception as e:
+            return {"success": False, "error": f"Pembaruan gagal: {type(e).__name__}: {e}"}
+
+    @staticmethod
+    def _restart_after_update(script_path):
+        try:
+            subprocess.Popen([sys.executable, script_path], cwd=str(Path(script_path).parent))
+            os._exit(0)
+        except Exception as e:
+            print(f"[UPDATE RESTART ERROR] {e}")
+
+    def open_url(self, url):
+        from urllib.parse import urlparse
+        import webbrowser
+        parsed = urlparse(str(url))
+        if parsed.scheme not in {"https"} or parsed.netloc not in {"github.com", "www.github.com"}:
+            return {"success": False, "error": "URL eksternal tidak diizinkan."}
+        webbrowser.open(url)
+        return {"success": True}
+
+    def run_speed_sample(self, mode):
+        """Measure one bounded sample against Cloudflare's public speed-test endpoints."""
+        endpoint = "https://speed.cloudflare.com"
+        if mode not in {"download", "upload", "latency"}:
+            return {"success": False, "error": "Mode speed test tidak valid."}
+
+        try:
+            cache_bust = time.time_ns()
+
+            if mode == "latency":
+                started = time.perf_counter()
+                response = requests.get(
+                    f"{endpoint}/__down?bytes=0&cacheBust={cache_bust}",
+                    headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
+                    timeout=(4, 5),
+                )
+                response.raise_for_status()
+                value = (time.perf_counter() - started) * 1000
+                return {"success": True, "value": round(value, 1), "unit": "ms"}
+
+            if mode == "download":
+                # Avoid a 100 MB request that can stall on slow or filtered connections.
+                # Use a bounded 1.25-second measurement and retry a smaller payload if needed.
+                last_error = None
+                for byte_count in (25_000_000, 10_000_000):
+                    started = time.perf_counter()
+                    received = 0
+                    try:
+                        with requests.get(
+                            f"{endpoint}/__down?bytes={byte_count}&cacheBust={cache_bust}",
+                            headers={
+                                "Cache-Control": "no-cache",
+                                "Pragma": "no-cache",
+                                "Accept-Encoding": "identity",
+                                "User-Agent": "IRA-ZTE-Live-Signal-Charts/0.0.0-dev",
+                            },
+                            stream=True,
+                            timeout=(3, 3),
+                        ) as response:
+                            response.raise_for_status()
+                            for chunk in response.iter_content(chunk_size=64 * 1024):
+                                if chunk:
+                                    received += len(chunk)
+                                elapsed_now = time.perf_counter() - started
+                                if elapsed_now >= 1.25:
+                                    break
+                        elapsed = max(time.perf_counter() - started, 0.001)
+                        if received > 0:
+                            value = (received * 8 / elapsed) / 1_000_000
+                            return {"success": True, "value": round(value, 2), "unit": "Mbps", "bytes_received": received}
+                        last_error = "Server tidak mengirim data download."
+                    except requests.exceptions.RequestException as e:
+                        last_error = f"{type(e).__name__}: {e}"
+                raise RuntimeError(f"Download gagal dari Cloudflare Speed Test: {last_error or 'tidak ada data yang diterima'}")
+
+            # Measure upload throughput with a moderate payload; timeout prevents a stalled phase.
+            payload = b"0" * 512_000
+            started = time.perf_counter()
+            response = requests.post(
+                f"{endpoint}/__up?cacheBust={cache_bust}",
+                data=payload,
+                headers={
+                    "Content-Type": "application/octet-stream",
+                    "Cache-Control": "no-cache",
+                },
+                timeout=(4, 10),
+            )
+            response.raise_for_status()
+            elapsed = max(time.perf_counter() - started, 0.001)
+            value = (len(payload) * 8 / elapsed) / 1_000_000
+            return {"success": True, "value": round(value, 2), "unit": "Mbps"}
+
+        except requests.exceptions.Timeout:
+            return {"success": False, "error": "Server speed test timeout (koneksi lambat atau endpoint diblokir)."}
+        except requests.exceptions.RequestException as e:
+            return {"success": False, "error": f"Koneksi speed test gagal: {type(e).__name__}: {e}"}
+        except Exception as e:
+            return {"success": False, "error": f"{type(e).__name__}: {e}"}
 
 if __name__ == '__main__':
     api = Api()
@@ -945,7 +1833,7 @@ if __name__ == '__main__':
         html=HTML_CONTENT, 
         js_api=api, 
         width=1100, 
-        height=750,
+        height=800,
         resizable=True
     )
     webview.start()
