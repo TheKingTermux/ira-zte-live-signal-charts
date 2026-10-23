@@ -1,4 +1,6 @@
 import time
+import subprocess
+import platform
 import requests
 import webview
 import urllib3
@@ -16,11 +18,24 @@ HTML_CONTENT = """
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         .modal-transition {
-            transition: opacity 0.25s ease, transform 0.25s ease;
+            transition: opacity 0.25s ease-in-out, transform 0.25s ease-in-out;
+        }
+        .accordion-content {
+            transition: max-height 0.3s ease-in-out, opacity 0.3s ease-in-out;
+            max-height: 0;
+            opacity: 0;
+            overflow: hidden;
+        }
+        .accordion-content.open {
+            max-height: 300px;
+            opacity: 1;
+        }
+        .tab-pane {
+            transition: opacity 0.25s ease-in-out, transform 0.25s ease-in-out;
         }
     </style>
 </head>
-<body id="app-body" class="bg-slate-950 text-slate-100 h-screen overflow-hidden p-4 flex flex-col justify-between select-none relative transition-colors duration-300">
+<body id="app-body" class="bg-slate-950 text-slate-100 h-screen overflow-hidden p-4 flex flex-col justify-between select-none relative">
     
     <!-- Header -->
     <header class="flex justify-between items-center pb-2 border-b border-slate-800 gap-2 shrink-0 relative">
@@ -32,17 +47,17 @@ HTML_CONTENT = """
                 </span>
                 IRA ZTE MC8501 5G LIVE SIGNAL CHARTS
             </h1>
-            <p class="text-[10px] text-slate-400">Real-time Telemetry & Smart Network Diagnostic</p>
+            <p class="text-[10px] text-slate-400">Real-time Telemetry & Smart Network Diagnostic Dashboard</p>
         </div>
         <div class="flex items-center gap-2">
             <!-- Settings Button -->
-            <button onclick="animateButton(this); toggleSettingsModal()" class="bg-slate-900 border border-slate-800 hover:border-cyan-500 p-2 rounded-xl text-cyan-400 transition-transform duration-150 active:scale-75 flex items-center justify-center shadow-inner" title="Pengaturan Aplikasi">
+            <button onclick="animateButton(this); toggleSettingsModal()" class="bg-slate-900 border border-slate-800 hover:border-cyan-500 p-2 rounded-xl text-cyan-400 flex items-center justify-center shadow-inner active:scale-95 transition-transform" title="Pengaturan & Ping Tool">
                 ⚙️
             </button>
             <!-- Bell History Button -->
-            <button onclick="animateButton(this); toggleHistoryModal()" class="relative bg-slate-900 border border-slate-800 hover:border-cyan-500 p-2 rounded-xl text-cyan-400 transition-transform duration-150 active:scale-75 flex items-center justify-center shadow-inner" title="Riwayat Koneksi Tower">
+            <button onclick="animateButton(this); toggleHistoryModal()" class="relative bg-slate-900 border border-slate-800 hover:border-cyan-500 p-2 rounded-xl text-cyan-400 flex items-center justify-center shadow-inner active:scale-95 transition-transform" title="Riwayat Koneksi Jaringan">
                 🔔
-                <span id="bell-badge" class="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.2 rounded-full hidden">0</span>
+                <span id="bell-badge" class="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.2 rounded-full hidden animate-pulse">0</span>
             </button>
             <div id="status-conn" class="text-[11px] font-medium bg-slate-900 border border-slate-800 px-3 py-1 rounded-xl text-slate-400 shadow-inner">
                 Menghubungkan...
@@ -50,15 +65,15 @@ HTML_CONTENT = """
         </div>
     </header>
 
-    <!-- Floating Animated Notification Banner (Placed below header / time area) -->
+    <!-- Floating Animated Notification Banner -->
     <div class="w-full flex justify-center shrink-0 my-1">
         <div id="floating-alert" class="hidden bg-orange-600/90 border border-orange-400 text-white px-4 py-1 rounded-xl shadow-2xl animate-bounce flex items-center gap-2 text-xs font-bold backdrop-blur-md z-40">
             <span id="floating-alert-text">⚠️ KONEKSI TOWER TERPUTUS!</span>
         </div>
     </div>
 
-    <!-- Main Dashboard Grid (Compact & Non-Scrollable) -->
-    <main class="space-y-2.5 flex-grow flex flex-col justify-center my-auto">
+    <!-- Main Dashboard Grid -->
+    <main class="space-y-2 flex-grow flex flex-col justify-center my-auto">
         
         <!-- 4 Compact Horizontal Cards -->
         <div class="grid grid-cols-1 gap-2">
@@ -137,9 +152,9 @@ HTML_CONTENT = """
 
         </div>
 
-        <!-- Tower Information Panel (Added Cell ID 5G & Internet Status) -->
-        <div class="card-bg bg-slate-900/90 border border-slate-800/80 p-3 rounded-xl shadow-md">
-            <h2 class="text-xs font-bold text-cyan-400 mb-2 flex items-center gap-1.5">
+        <!-- Tower Information Panel (Tanpa Animasi) -->
+        <div class="card-bg bg-slate-900/90 border border-slate-800/80 p-2.5 rounded-xl shadow-md">
+            <h2 class="text-xs font-bold text-cyan-400 mb-1.5 flex items-center gap-1.5">
                 🗼 TOWER & NETWORK INFORMATION
             </h2>
             <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
@@ -182,121 +197,153 @@ HTML_CONTENT = """
             </div>
         </div>
 
-        <!-- Signal Rating Criteria Reference Table -->
-        <div class="card-bg bg-slate-900/90 border border-slate-800/80 p-3 rounded-xl shadow-md">
-            <h2 class="text-xs font-bold text-cyan-400 mb-2 flex items-center gap-1.5">
-                📊 Kriteria Penilaian Kualitas Sinyal 5G
-            </h2>
-            <div class="overflow-x-auto">
-                <table class="w-full text-left text-[10px] text-slate-300 border-collapse">
-                    <thead>
-                        <tr class="border-b border-slate-800 text-slate-400 uppercase">
-                            <th class="py-1 px-2">Parameter</th>
-                            <th class="py-1 px-2 text-purple-400">🟣 Mantap</th>
-                            <th class="py-1 px-2 text-emerald-500">🟢 Bagus</th>
-                            <th class="py-1 px-2 text-amber-400">🟡 Cukup</th>
-                            <th class="py-1 px-2 text-red-400">🔴 Buruk</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-800/50">
-                        <tr>
-                            <td class="py-1 px-2 font-semibold text-cyan-300">RSRP (Daya Sinyal)</td>
-                            <td class="py-1 px-2">&ge; -80 dBm</td>
-                            <td class="py-1 px-2">-81 s/d -95 dBm</td>
-                            <td class="py-1 px-2">-96 s/d -110 dBm</td>
-                            <td class="py-1 px-2">&lt; -110 dBm</td>
-                        </tr>
-                        <tr>
-                            <td class="py-1 px-2 font-semibold text-cyan-300">RSSI (Kekuatan Total)</td>
-                            <td class="py-1 px-2">&ge; -70 dBm</td>
-                            <td class="py-1 px-2">-71 s/d -85 dBm</td>
-                            <td class="py-1 px-2">-86 s/d -100 dBm</td>
-                            <td class="py-1 px-2">&lt; -100 dBm</td>
-                        </tr>
-                        <tr>
-                            <td class="py-1 px-2 font-semibold text-cyan-300">RSRQ (Kualitas Sinyal)</td>
-                            <td class="py-1 px-2">&ge; -10 dB</td>
-                            <td class="py-1 px-2">-11 s/d -15 dB</td>
-                            <td class="py-1 px-2">-16 s/d -20 dB</td>
-                            <td class="py-1 px-2">&lt; -20 dB</td>
-                        </tr>
-                        <tr>
-                            <td class="py-1 px-2 font-semibold text-cyan-300">SINR / SNR (Kebersihan Sinyal)</td>
-                            <td class="py-1 px-2">&ge; 20 dB</td>
-                            <td class="py-1 px-2">10 s/d 19 dB</td>
-                            <td class="py-1 px-2">0 s/d 9 dB</td>
-                            <td class="py-1 px-2">&lt; 0 dB</td>
-                        </tr>
-                    </tbody>
-                </table>
+        <!-- Signal Rating Criteria Accordion (Dropdown Initially Hidden) -->
+        <div class="card-bg bg-slate-900/90 border border-slate-800/80 rounded-xl shadow-md overflow-hidden">
+            <button onclick="toggleAccordion()" class="w-full p-2.5 flex justify-between items-center text-xs font-bold text-cyan-400 bg-slate-900/50 hover:bg-slate-800/50 transition-colors">
+                <span class="flex items-center gap-1.5">📊 Kriteria Penilaian Kualitas Sinyal 5G</span>
+                <span id="accordion-arrow" class="text-slate-400 transition-transform duration-300">▼</span>
+            </button>
+            <div id="accordion-content" class="accordion-content px-3 pb-2">
+                <div class="overflow-x-auto border-t border-slate-800/60 pt-2">
+                    <table class="w-full text-left text-[10px] text-slate-300 border-collapse">
+                        <thead>
+                            <tr class="border-b border-slate-800 text-slate-400 uppercase">
+                                <th class="py-1 px-2">Parameter</th>
+                                <th class="py-1 px-2 text-purple-400">🟣 Mantap</th>
+                                <th class="py-1 px-2 text-emerald-500">🟢 Bagus</th>
+                                <th class="py-1 px-2 text-amber-400">🟡 Cukup</th>
+                                <th class="py-1 px-2 text-red-400">🔴 Buruk</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-800/50">
+                            <tr>
+                                <td class="py-1 px-2 font-semibold text-cyan-300">RSRP (Daya Sinyal)</td>
+                                <td class="py-1 px-2">&ge; -80 dBm</td>
+                                <td class="py-1 px-2">-81 s/d -95 dBm</td>
+                                <td class="py-1 px-2">-96 s/d -110 dBm</td>
+                                <td class="py-1 px-2">&lt; -110 dBm</td>
+                            </tr>
+                            <tr>
+                                <td class="py-1 px-2 font-semibold text-cyan-300">RSSI (Kekuatan Total)</td>
+                                <td class="py-1 px-2">&ge; -70 dBm</td>
+                                <td class="py-1 px-2">-71 s/d -85 dBm</td>
+                                <td class="py-1 px-2">-86 s/d -100 dBm</td>
+                                <td class="py-1 px-2">&lt; -100 dBm</td>
+                            </tr>
+                            <tr>
+                                <td class="py-1 px-2 font-semibold text-cyan-300">RSRQ (Kualitas Sinyal)</td>
+                                <td class="py-1 px-2">&ge; -10 dB</td>
+                                <td class="py-1 px-2">-11 s/d -15 dB</td>
+                                <td class="py-1 px-2">-16 s/d -20 dB</td>
+                                <td class="py-1 px-2">&lt; -20 dB</td>
+                            </tr>
+                            <tr>
+                                <td class="py-1 px-2 font-semibold text-cyan-300">SINR / SNR (Kebersihan Sinyal)</td>
+                                <td class="py-1 px-2">&ge; 20 dB</td>
+                                <td class="py-1 px-2">10 s/d 19 dB</td>
+                                <td class="py-1 px-2">0 s/d 9 dB</td>
+                                <td class="py-1 px-2">&lt; 0 dB</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
 
     </main>
 
-    <!-- Settings Modal -->
-    <div id="settingsModal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm opacity-0 pointer-events-none modal-transition">
-        <div id="settingsBox" class="bg-slate-900 border border-slate-800 p-5 rounded-2xl max-w-sm w-full mx-4 shadow-2xl space-y-4 text-slate-100 transform scale-95 transition-transform duration-200">
+    <!-- Settings & Ping Tool Modal (Animated Open/Close + Clean Tab Transitions) -->
+    <div id="settingsModal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm opacity-0 pointer-events-none modal-transition">
+        <div id="settingsBox" class="bg-slate-900 border border-slate-800 p-5 rounded-2xl max-w-md w-full mx-4 shadow-2xl space-y-4 text-slate-100 transform scale-95 transition-transform duration-250">
             <div class="flex justify-between items-center pb-2 border-b border-slate-800">
-                <h3 class="text-sm font-bold text-cyan-400 flex items-center gap-2">⚙️ Pengaturan Aplikasi</h3>
-                <button onclick="toggleSettingsModal()" class="text-slate-400 hover:text-white text-xs font-bold px-2 py-1 rounded-lg bg-slate-800">✕</button>
+                <h3 class="text-sm font-bold text-cyan-400 flex items-center gap-2">⚙️ Pengaturan & Ping Tool</h3>
+                <button onclick="animateButton(this); toggleSettingsModal()" class="text-slate-400 hover:text-white text-xs font-bold px-2 py-1 rounded-lg bg-slate-800">✕</button>
             </div>
             
-            <div>
-                <label class="text-[11px] font-semibold text-slate-300 block mb-1">Tema Tampilan</label>
-                <select id="setting-theme" onchange="changeTheme(this.value)" class="w-full bg-slate-950 border border-slate-800 text-xs text-slate-200 p-2 rounded-xl focus:outline-none focus:border-cyan-500">
-                    <option value="dark" selected>Gelap (Default)</option>
-                    <option value="light">Terang</option>
-                </select>
+            <!-- Modal Tabs Header -->
+            <div class="flex border-b border-slate-800 text-xs">
+                <button onclick="switchTab('tab-general')" id="btn-tab-general" class="flex-1 py-2 font-semibold text-cyan-400 border-b-2 border-cyan-400 bg-cyan-500/10 transition-all duration-300">Pengaturan Umum</button>
+                <button onclick="switchTab('tab-ping')" id="btn-tab-ping" class="flex-1 py-2 font-semibold text-slate-400 border-b-2 border-transparent hover:text-slate-200 transition-all duration-300">Ping Tool</button>
             </div>
 
-            <div>
-                <label class="text-[11px] font-semibold text-slate-300 block mb-1">Frekuensi Update Data</label>
-                <select id="setting-freq" onchange="changeFrequency(this.value)" class="w-full bg-slate-950 border border-slate-800 text-xs text-slate-200 p-2 rounded-xl focus:outline-none focus:border-cyan-500">
-                    <option value="1000">Cepat (1 Detik)</option>
-                    <option value="2000" selected>Normal (2 Detik)</option>
-                    <option value="4000">Lambat (4 Detik)</option>
-                </select>
+            <!-- Tab Contents Container (Relative wrapper to prevent layout breaking) -->
+            <div class="relative min-h-[170px]">
+                <!-- Tab 1: General Settings -->
+                <div id="tab-general" class="tab-pane absolute inset-x-0 top-0 space-y-3 pt-1 opacity-100 scale-100">
+                    <div>
+                        <label class="text-[11px] font-semibold text-slate-300 block mb-1">Tema Tampilan</label>
+                        <select id="setting-theme" onchange="changeTheme(this.value)" class="w-full bg-slate-950 border border-slate-800 text-xs text-slate-200 p-2 rounded-xl focus:outline-none focus:border-cyan-500 transition-all">
+                            <option value="dark" selected>Gelap (Default)</option>
+                            <option value="light">Terang</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-[11px] font-semibold text-slate-300 block mb-1">Frekuensi Update Data (Refresh Rate)</label>
+                        <select id="setting-freq" onchange="changeFrequency(this.value)" class="w-full bg-slate-950 border border-slate-800 text-xs text-slate-200 p-2 rounded-xl focus:outline-none focus:border-cyan-500 transition-all">
+                            <option value="1000" selected>Cepat / Default (1 Detik)</option>
+                            <option value="2000">Normal (2 Detik)</option>
+                            <option value="4000">Lambat (4 Detik)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Tab 2: Ping Tool -->
+                <div id="tab-ping" class="tab-pane absolute inset-x-0 top-0 space-y-3 pt-1 opacity-0 scale-95 pointer-events-none hidden">
+                    <div>
+                        <label class="text-[11px] font-semibold text-slate-300 block mb-1">Target Host / IP</label>
+                        <div class="flex gap-2">
+                            <input type="text" id="ping-host" value="1.1.1.1" class="w-full bg-slate-950 border border-slate-800 text-xs text-slate-200 p-2 rounded-xl focus:outline-none focus:border-cyan-500 transition-all">
+                            <button onclick="animateButton(this); runPing()" id="btn-ping" class="bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-2 rounded-xl text-xs font-semibold shrink-0 transition-all active:scale-95">Ping</button>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="text-[11px] font-semibold text-slate-300 block mb-1">Hasil Ping</label>
+                        <pre id="ping-output" class="w-full bg-slate-950 border border-slate-800 text-[10px] text-emerald-400 p-2.5 rounded-xl h-24 overflow-y-auto font-mono">Menunggu perintah...</pre>
+                    </div>
+                </div>
             </div>
 
-            <div class="pt-2 flex justify-end">
-                <button onclick="toggleSettingsModal()" class="bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold px-4 py-2 rounded-xl transition-all">Simpan & Tutup</button>
+            <div class="pt-2 flex justify-end border-t border-slate-800 mt-[175px]">
+                <button onclick="animateButton(this); toggleSettingsModal()" class="w-full bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold py-2.5 rounded-xl shadow-lg transition-all active:scale-95">Tutup</button>
             </div>
         </div>
     </div>
 
-    <!-- Disconnected Alert Popup Modal -->
+    <!-- Disconnected Alert Popup Modal (Animated with Recheck Button) -->
     <div id="disconnectModal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm opacity-0 pointer-events-none modal-transition">
-        <div id="disconnectBox" class="bg-slate-900 border-2 border-orange-500/80 p-6 rounded-2xl max-w-md w-full mx-4 shadow-2xl shadow-orange-500/20 text-slate-100 transform scale-95 transition-transform duration-200">
+        <div id="disconnectBox" class="bg-slate-900 border-2 border-orange-500/80 p-6 rounded-2xl max-w-md w-full mx-4 shadow-2xl shadow-orange-500/20 text-slate-100 transform scale-95 transition-transform duration-250">
             <div class="w-12 h-12 bg-orange-500/10 text-orange-500 rounded-xl flex items-center justify-center mx-auto mb-3 text-2xl font-bold animate-bounce">⚠️</div>
             <h3 id="modal-title-disc" class="text-lg font-bold text-orange-400 text-center mb-1">KONEKSI TOWER TERPUTUS!</h3>
             <p id="modal-desc-disc" class="text-xs text-slate-300 text-center mb-4">Sinyal bar terdeteksi 0 atau terputus dari jaringan utama.</p>
-            <button onclick="closeDisconnectModal()" class="w-full bg-orange-600 hover:bg-orange-500 text-white font-semibold py-2.5 px-4 rounded-xl text-xs shadow-lg transition-all active:scale-95">Tutup Peringatan</button>
+            <div class="space-y-2">
+                <button onclick="animateButton(this); manualReconnectCheck()" id="btn-recheck" class="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-semibold py-2.5 px-4 rounded-xl text-xs shadow-lg transition-all active:scale-95">🔄 Uji Ulang Koneksi Internet</button>
+                <button onclick="animateButton(this); closeDisconnectModal()" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold py-2 px-4 rounded-xl text-xs transition-all active:scale-95">Tutup Peringatan</button>
+            </div>
         </div>
     </div>
 
-    <!-- Reconnected Alert Popup Modal -->
+    <!-- Reconnected Alert Popup Modal (Animated) -->
     <div id="reconnectModal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm opacity-0 pointer-events-none modal-transition">
-        <div id="reconnectBox" class="bg-slate-900 border-2 border-emerald-500/80 p-6 rounded-2xl max-w-md w-full mx-4 shadow-2xl shadow-emerald-500/20 text-slate-100 transform scale-95 transition-transform duration-200">
+        <div id="reconnectBox" class="bg-slate-900 border-2 border-emerald-500/80 p-6 rounded-2xl max-w-md w-full mx-4 shadow-2xl shadow-emerald-500/20 text-slate-100 transform scale-95 transition-transform duration-250">
             <div class="w-12 h-12 bg-emerald-500/10 text-emerald-500 rounded-xl flex items-center justify-center mx-auto mb-3 text-2xl font-bold animate-bounce">✅</div>
             <h3 class="text-lg font-bold text-emerald-400 text-center mb-1">KONEKSI KEMBALI NORMAL!</h3>
-            <p class="text-xs text-slate-300 text-center mb-4">Tower dan akses internet berhasil tersambung kembali dengan stabil.</p>
-            <button onclick="closeReconnectModal()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-2.5 px-4 rounded-xl text-xs shadow-lg transition-all active:scale-95">Tutup Peringatan</button>
+            <p class="text-xs text-slate-300 text-center mb-4">Tower dan akses internet berhasil tersambung kembali dengan lancar dan stabil.</p>
+            <button onclick="animateButton(this); closeReconnectModal()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-2.5 px-4 rounded-xl text-xs shadow-lg transition-all active:scale-95">Tutup Peringatan</button>
         </div>
     </div>
 
-    <!-- History Log Modal -->
+    <!-- History Log Modal (Animated) -->
     <div id="historyModal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm opacity-0 pointer-events-none modal-transition">
-        <div id="historyBox" class="bg-slate-900 border border-slate-800 p-5 rounded-2xl max-w-lg w-full mx-4 shadow-2xl max-h-[80vh] flex flex-col text-slate-100 transform scale-95 transition-transform duration-200">
+        <div id="historyBox" class="bg-slate-900 border border-slate-800 p-5 rounded-2xl max-w-lg w-full mx-4 shadow-2xl max-h-[80vh] flex flex-col text-slate-100 transform scale-95 transition-transform duration-250">
             <div class="flex justify-between items-center mb-3 pb-2 border-b border-slate-800">
                 <h3 class="text-sm font-bold text-cyan-400 flex items-center gap-2">🔔 Riwayat Jaringan & Pemutusan</h3>
-                <button onclick="toggleHistoryModal()" class="text-slate-400 hover:text-white text-xs font-bold px-2 py-1 rounded-lg bg-slate-800">✕</button>
+                <button onclick="animateButton(this); toggleHistoryModal()" class="text-slate-400 hover:text-white text-xs font-bold px-2 py-1 rounded-lg bg-slate-800">✕</button>
             </div>
             <div id="history-list" class="overflow-y-auto space-y-2 flex-grow pr-1 text-xs">
                 <div class="text-center text-slate-500 py-6">Belum ada riwayat tercatat dalam sesi ini.</div>
             </div>
             <div class="mt-3 pt-2 border-t border-slate-800 flex justify-end">
-                <button onclick="clearHistory()" class="text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg transition-all">Bersihkan Riwayat</button>
+                <button onclick="animateButton(this); clearHistory()" class="text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg transition-all active:scale-95">Bersihkan Riwayat</button>
             </div>
         </div>
     </div>
@@ -309,14 +356,206 @@ HTML_CONTENT = """
         let connectionHistory = [];
         let wasConnected = true;
         let wasInternetOk = true;
-        let modalDismissed = false;
         let unreadCount = 0;
-        let currentIntervalTime = 2000;
+        let currentIntervalTime = 1000;
         let pollTimer = null;
 
+        window.addEventListener('DOMContentLoaded', () => {
+            loadSettings();
+        });
+
+        window.addEventListener('pywebviewready', function() {
+            startPolling();
+        });
+
+        // Loop polling: tiap siklus membaca currentIntervalTime TERBARU.
+        // try/finally memastikan loop tidak pernah berhenti walau ada error.
+        let pollGeneration = 0;
+
+        function startPolling() {
+            pollGeneration++;
+            const myGen = pollGeneration;
+            if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+
+            const tick = async () => {
+                if (myGen !== pollGeneration) return;
+                const started = Date.now();
+                try {
+                    await fetchTelemetry();
+                } catch (e) {
+                    console.error('Polling error:', e);
+                } finally {
+                    if (myGen === pollGeneration) {
+                        const wait = Math.max(0, currentIntervalTime - (Date.now() - started));
+                        pollTimer = setTimeout(tick, wait);
+                    }
+                }
+            };
+            tick();
+        }
+
+        // Web Audio API Disconnect Chime (3 nada menurun, bernuansa lonceng)
+        let sharedAudioCtx = null;
+
+        function getAudioCtx() {
+            if (!sharedAudioCtx) {
+                const Ctx = window.AudioContext || window.webkitAudioContext;
+                if (Ctx) sharedAudioCtx = new Ctx();
+            }
+            return sharedAudioCtx;
+        }
+
+        // Browser/webview kadang memblokir audio sebelum ada interaksi pertama
+        ['pointerdown', 'keydown'].forEach(evt => {
+            window.addEventListener(evt, () => {
+                const ctx = getAudioCtx();
+                if (ctx && ctx.state === 'suspended') ctx.resume();
+            }, { once: true });
+        });
+
+        function playAlertSound() {
+            try {
+                const ctx = getAudioCtx();
+                if (!ctx) return;
+                if (ctx.state === 'suspended') ctx.resume();
+
+                // A5 -> E5 -> C#5 (menurun, terdengar sebagai peringatan)
+                const notes = [880.00, 659.25, 554.37];
+                const step = 0.28;      // jeda antar nada (detik)
+                const decay = 1.1;      // lama gema tiap nada (detik)
+                const t0 = ctx.currentTime + 0.02;
+
+                notes.forEach((freq, i) => {
+                    const t = t0 + i * step;
+
+                    const master = ctx.createGain();
+                    master.gain.setValueAtTime(0.0001, t);
+                    master.gain.exponentialRampToValueAtTime(0.3, t + 0.015);
+                    master.gain.exponentialRampToValueAtTime(0.0001, t + decay);
+                    master.connect(ctx.destination);
+
+                    // Nada dasar + overtone 2x (lebih lemah) untuk karakter lonceng
+                    [[freq, 1.0], [freq * 2, 0.35]].forEach(([f, level]) => {
+                        const osc = ctx.createOscillator();
+                        const g = ctx.createGain();
+                        osc.type = 'sine';
+                        osc.frequency.setValueAtTime(f, t);
+                        g.gain.setValueAtTime(level, t);
+                        osc.connect(g);
+                        g.connect(master);
+                        osc.start(t);
+                        osc.stop(t + decay + 0.05);
+                    });
+                });
+            } catch (e) {
+                console.log("Audio alert suppressed:", e);
+            }
+        }
+
+        // Clean & Smooth Tab Switcher (No Layout Shifts)
+        function switchTab(tabId) {
+            const allTabs = ['tab-general', 'tab-ping'];
+            const allBtns = ['btn-tab-general', 'btn-tab-ping'];
+
+            allTabs.forEach(id => {
+                let pane = document.getElementById(id);
+                if (id === tabId) {
+                    pane.classList.remove('hidden');
+                    void pane.offsetWidth;
+                    pane.classList.remove('opacity-0', 'scale-95', 'pointer-events-none');
+                    pane.classList.add('opacity-100', 'scale-100');
+                } else {
+                    pane.classList.remove('opacity-100', 'scale-100');
+                    pane.classList.add('opacity-0', 'scale-95', 'pointer-events-none');
+                    setTimeout(() => {
+                        if (!pane.classList.contains('opacity-100')) {
+                            pane.classList.add('hidden');
+                        }
+                    }, 250);
+                }
+            });
+
+            allBtns.forEach(id => {
+                let btn = document.getElementById(id);
+                if (id === 'btn-' + tabId) {
+                    btn.className = "flex-1 py-2 font-semibold text-cyan-400 border-b-2 border-cyan-400 bg-cyan-500/10 transition-all duration-300";
+                } else {
+                    btn.className = "flex-1 py-2 font-semibold text-slate-400 border-b-2 border-transparent hover:text-slate-200 transition-all duration-300";
+                }
+            });
+        }
+
+        // Manual Reconnect Check Button Handler
+        async function manualReconnectCheck() {
+            let btn = document.getElementById('btn-recheck');
+            btn.disabled = true;
+            btn.innerText = "⏳ Sedang Menguji...";
+            
+            await fetchTelemetry();
+            
+            setTimeout(() => {
+                btn.disabled = false;
+                btn.innerText = "🔄 Uji Ulang Koneksi Internet";
+            }, 800);
+        }
+
+        function toggleAccordion() {
+            let content = document.getElementById('accordion-content');
+            let arrow = document.getElementById('accordion-arrow');
+            if (content.classList.contains('open')) {
+                content.classList.remove('open');
+                arrow.style.transform = 'rotate(0deg)';
+            } else {
+                content.classList.add('open');
+                arrow.style.transform = 'rotate(180deg)';
+            }
+        }
+
+        async function runPing() {
+            let host = document.getElementById('ping-host').value.trim();
+            let outputEl = document.getElementById('ping-output');
+            let btn = event.target;
+
+            if (!host) {
+                alert('Masukkan host atau IP tujuan ping!');
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerText = 'Pinging...';
+            outputEl.classList.add('animate-pulse');
+            outputEl.innerText = `Mengirim paket ping ke ${host}...\n`;
+
+            try {
+                let result = await window.pywebview.api.run_ping(host);
+                outputEl.classList.remove('animate-pulse');
+                if (result.success) {
+                    outputEl.innerText = result.output;
+                } else {
+                    outputEl.innerText = `Error: ${result.output}`;
+                }
+            } catch (e) {
+                outputEl.classList.remove('animate-pulse');
+                outputEl.innerText = `Gagal menjalankan ping: ${e}`;
+            }
+            btn.disabled = false;
+            btn.innerText = 'Ping';
+        }
+
         function animateButton(btn) {
-            btn.classList.add('scale-75');
-            setTimeout(() => btn.classList.remove('scale-75'), 150);
+            btn.style.transform = 'scale(0.9)';
+            setTimeout(() => btn.style.transform = 'scale(1)', 150);
+        }
+
+        function loadSettings() {
+            let savedTheme = localStorage.getItem('router_theme') || 'dark';
+            let savedFreq = localStorage.getItem('router_freq') || '1000';
+
+            document.getElementById('setting-theme').value = savedTheme;
+            changeTheme(savedTheme, false);
+
+            document.getElementById('setting-freq').value = savedFreq;
+            currentIntervalTime = parseInt(savedFreq);
         }
 
         function openModal(modalId, boxId) {
@@ -359,26 +598,28 @@ HTML_CONTENT = """
 
         function closeDisconnectModal() {
             closeModal('disconnectModal', 'disconnectBox');
-            modalDismissed = true;
         }
 
         function closeReconnectModal() {
             closeModal('reconnectModal', 'reconnectBox');
         }
 
-        function changeTheme(theme) {
+        function changeTheme(theme, save = true) {
             let body = document.getElementById('app-body');
             if (theme === 'light') {
                 body.className = body.className.replace('bg-slate-950 text-slate-100', 'bg-slate-100 text-slate-900');
             } else {
                 body.className = body.className.replace('bg-slate-100 text-slate-900', 'bg-slate-950 text-slate-100');
             }
+            if (save) {
+                localStorage.setItem('router_theme', theme);
+            }
         }
 
         function changeFrequency(val) {
-            currentIntervalTime = parseInt(val);
-            if (pollTimer) clearInterval(pollTimer);
-            pollTimer = setInterval(fetchTelemetry, currentIntervalTime);
+            currentIntervalTime = parseInt(val, 10) || 1000;
+            localStorage.setItem('router_freq', String(currentIntervalTime));
+            if (window.pywebview && window.pywebview.api) startPolling();
         }
 
         function addHistoryLog(status, timeStr) {
@@ -429,6 +670,7 @@ HTML_CONTENT = """
             renderHistoryList();
         }
 
+        // Animated Smooth Line Charts with Chart.js
         function createChart(ctx, color) {
             return new Chart(ctx, {
                 type: 'line',
@@ -440,7 +682,7 @@ HTML_CONTENT = """
                         backgroundColor: color + '15',
                         borderWidth: 2,
                         fill: true,
-                        tension: 0.3,
+                        tension: 0.35,
                         pointRadius: 2,
                         pointBackgroundColor: '#ffffff',
                         pointBorderColor: color,
@@ -450,7 +692,10 @@ HTML_CONTENT = """
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    animation: false,
+                    animation: {
+                        duration: 300,
+                        easing: 'easeOutQuad'
+                    },
                     plugins: { legend: { display: false } },
                     scales: {
                         x: { display: false },
@@ -507,16 +752,14 @@ HTML_CONTENT = """
 
             const signalBar = parseInt(data.signalbar);
             const isConnected = !isNaN(signalBar) && signalBar > 0;
-            const internetOk = data.internet_ok !== false; // True by default unless explicitly false
+            const internetOk = data.internet_ok !== false;
 
             const towerStatusEl = document.getElementById('tower-status-val');
             const internetStatusEl = document.getElementById('internet-status-val');
             const floatingAlert = document.getElementById('floating-alert');
             const floatingAlertText = document.getElementById('floating-alert-text');
 
-            // Cek kondisi Tower vs Internet
             if (!isConnected) {
-                // Tower Terputus
                 towerStatusEl.innerText = 'Terputus';
                 towerStatusEl.className = 'text-[11px] font-bold text-orange-500 mt-0.5 truncate';
                 floatingAlertText.innerText = '⚠️ KONEKSI TOWER TERPUTUS!';
@@ -525,13 +768,12 @@ HTML_CONTENT = """
                 if (wasConnected) {
                     addHistoryLog('Tower Terputus', nowTime);
                     wasConnected = false;
-                    modalDismissed = false;
+                    playAlertSound();
                     document.getElementById('modal-title-disc').innerText = 'KONEKSI TOWER TERPUTUS!';
                     document.getElementById('modal-desc-disc').innerText = 'Sinyal bar terdeteksi 0 atau terputus dari jaringan utama.';
                     openModal('disconnectModal', 'disconnectBox');
                 }
             } else if (!internetOk) {
-                // Tower Terhubung, tapi Internet Bermasalah
                 towerStatusEl.innerText = 'Tersambung';
                 towerStatusEl.className = 'text-[11px] font-bold text-emerald-400 mt-0.5 truncate';
                 internetStatusEl.innerText = 'Bermasalah';
@@ -543,12 +785,12 @@ HTML_CONTENT = """
                 if (wasInternetOk) {
                     addHistoryLog('Internet Bermasalah', nowTime);
                     wasInternetOk = false;
+                    playAlertSound();
                     document.getElementById('modal-title-disc').innerText = 'INTERNET BERMASALAH!';
-                    document.getElementById('modal-desc-disc').innerText = 'Tower seluler tersambung (Signal Bar > 0), tetapi tidak ada akses internet ke luar.';
+                    document.getElementById('modal-desc-disc').innerText = 'Status tower tersambung (Signal Bar > 0), tetapi tidak ada koneksi internet yang dapat dijangkau.';
                     openModal('disconnectModal', 'disconnectBox');
                 }
             } else {
-                // Semua Normal
                 towerStatusEl.innerText = 'Tersambung';
                 towerStatusEl.className = 'text-[11px] font-bold text-emerald-400 mt-0.5 truncate';
                 internetStatusEl.innerText = 'Normal';
@@ -559,7 +801,6 @@ HTML_CONTENT = """
                     addHistoryLog('Jaringan Normal Kembali', nowTime);
                     wasConnected = true;
                     wasInternetOk = true;
-                    modalDismissed = false;
                     openModal('reconnectModal', 'reconnectBox');
                 }
             }
@@ -594,6 +835,7 @@ HTML_CONTENT = """
             applyStatus('rsrq', 'rsrq', rsrq);
             applyStatus('sinr', 'sinr', sinr);
 
+            // Smooth chart animation update
             function updateChartData(chart, val) {
                 if (chart.data.labels.length >= maxDataPoints) {
                     chart.data.labels.shift();
@@ -601,7 +843,7 @@ HTML_CONTENT = """
                 }
                 chart.data.labels.push(nowTime);
                 chart.data.datasets[0].data.push(val);
-                chart.update('none');
+                chart.update();
             }
 
             updateChartData(chartRsrp, rsrp);
@@ -609,14 +851,16 @@ HTML_CONTENT = """
             updateChartData(chartRsrq, rsrq);
             updateChartData(chartSinr, sinr);
 
+            // Static info without animations
             document.getElementById('info-pci').innerText = data.nr5g_pci || '-';
             document.getElementById('info-cellid').innerText = data.nr5g_cell_id || '-';
             document.getElementById('info-nettype').innerText = data.network_type || '-';
             document.getElementById('info-signalbar').innerText = (data.signalbar || '0') + ' / 3';
             document.getElementById('info-band').innerText = data.wan_active_band || '-';
 
-            document.getElementById('status-conn').innerText = `Terakhir: ${nowTime}`;
-            document.getElementById('status-conn').className = "text-[11px] font-medium bg-emerald-950/40 border border-emerald-500/30 text-emerald-400 px-3 py-1 rounded-xl shadow-inner";
+            let connEl = document.getElementById('status-conn');
+            connEl.innerText = `Terakhir: ${nowTime}`;
+            connEl.className = "text-[11px] font-medium bg-emerald-950/40 border border-emerald-500/30 text-emerald-400 px-3 py-1 rounded-xl shadow-inner";
         }
 
         async function fetchTelemetry() {
@@ -627,15 +871,11 @@ HTML_CONTENT = """
                 }
             } catch (err) {
                 console.error("Gagal ambil data:", err);
-                document.getElementById('status-conn').innerText = "Terputus...";
-                document.getElementById('status-conn').className = "text-[11px] font-medium bg-red-950/40 border border-red-500/30 text-red-400 px-3 py-1 rounded-xl shadow-inner";
+                let connEl = document.getElementById('status-conn');
+                connEl.innerText = "Terputus...";
+                connEl.className = "text-[11px] font-medium bg-red-950/40 border border-red-500/30 text-red-400 px-3 py-1 rounded-xl shadow-inner";
             }
         }
-
-        window.addEventListener('pywebviewready', function() {
-            fetchTelemetry();
-            pollTimer = setInterval(fetchTelemetry, currentIntervalTime);
-        });
     </script>
 </body>
 </html>
@@ -647,7 +887,6 @@ class Api:
         internet_ok = False
         try:
             url = f"http://192.168.0.1/ubus/?t={int(time.time() * 1000)}"
-            # Cookies dictionary removed as requested
             headers = {
                 "Content-Type": "application/json",
                 "Referer": "http://192.168.0.1/index.html",
@@ -681,7 +920,6 @@ class Api:
         except Exception as e:
             print(f"[ERROR TOWER] {e}")
 
-        # Check actual internet connectivity
         try:
             requests.get("http://1.1.1.1", timeout=1.5)
             internet_ok = True
@@ -690,6 +928,15 @@ class Api:
 
         data["internet_ok"] = internet_ok
         return data
+
+    def run_ping(self, host="1.1.1.1"):
+        try:
+            param = "-n" if platform.system().lower() == "windows" else "-c"
+            command = ["ping", param, "4", host]
+            output = subprocess.check_output(command, stderr=subprocess.STDOUT, universal_newlines=True, timeout=10)
+            return {"success": True, "output": output}
+        except Exception as e:
+            return {"success": False, "output": str(e)}
 
 if __name__ == '__main__':
     api = Api()
