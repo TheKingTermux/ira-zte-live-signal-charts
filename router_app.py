@@ -10,7 +10,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-APP_VERSION = "1.1-dev"
+APP_VERSION = "1.1-dev.1"
 GITHUB_REPOSITORY = "TheKingTermux/ira-zte-live-signal-charts"
 GITHUB_RELEASES_API = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/releases?per_page=30"
 
@@ -443,7 +443,7 @@ HTML_CONTENT = """
                 <div id="tab-about" class="tab-pane absolute inset-x-0 top-0 space-y-3 pt-1 opacity-0 scale-95 pointer-events-none hidden">
                     <div class="rounded-xl border border-cyan-900/70 bg-cyan-950/20 p-4">
                         <div class="text-lg font-black tracking-wide text-cyan-300">IRA ZTE MC8501 5G LIVE SIGNAL CHARTS</div>
-                        <div class="text-[11px] text-slate-400 mt-1">Versi aplikasi: <span id="about-app-version" class="text-slate-200 font-semibold">1.1-dev</span></div>
+                        <div class="text-[11px] text-slate-400 mt-1">Versi aplikasi: <span id="about-app-version" class="text-slate-200 font-semibold">__APP_VERSION__</span></div>
                         <p class="text-[11px] text-slate-300 mt-3 leading-relaxed">Dashboard desktop untuk memantau parameter sinyal 5G router ZTE MC8501 secara real-time, melihat status tower dan internet, memeriksa latensi, serta menjalankan tes kecepatan jaringan.</p>
                     </div>
                     <div class="rounded-xl border border-slate-800 bg-slate-950/50 p-3 space-y-2">
@@ -930,7 +930,7 @@ HTML_CONTENT = """
             }
         }
 
-        const APP_VERSION_JS = '1.1-dev';
+        const APP_VERSION_JS = "__APP_VERSION__";
         let availableUpdate = null;
         let updateInstallInProgress = false;
 
@@ -1484,6 +1484,7 @@ HTML_CONTENT = """
 </body>
 </html>
 """
+HTML_CONTENT = HTML_CONTENT.replace("__APP_VERSION__", APP_VERSION)
 
 class Api:
     def get_router_data(self):
