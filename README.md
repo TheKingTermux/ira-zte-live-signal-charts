@@ -54,8 +54,35 @@ Paket Python yang digunakan:
 
 ## Instalasi
 
-1. **Klon repositori**
+Pilih kanal rilis sesuai kebutuhan. **Stable** direkomendasikan untuk penggunaan sehari-hari, sedangkan **Beta** berisi versi pengujian yang mungkin masih memiliki bug.
 
+<p align="center">
+  <a href="https://github.com/TheKingTermux/ira-zte-live-signal-charts/releases/latest"><img src="https://img.shields.io/badge/Unduh-Stable%20Rilis-1976D2?style=for-the-badge&logo=github&logoColor=white" alt="Unduh Stable Rilis"></a>
+  &nbsp;
+  <a href="https://github.com/TheKingTermux/ira-zte-live-signal-charts/releases"><img src="https://img.shields.io/badge/Unduh-Beta%20Rilis-8E44AD?style=for-the-badge&logo=github&logoColor=white" alt="Unduh Beta Rilis"></a>
+</p>
+
+- **[Stable Rilis — versi stabil terbaru](https://github.com/TheKingTermux/ira-zte-live-signal-charts/releases/latest):** pilih ini jika mengutamakan versi yang ditandai sebagai rilis stabil.
+- **[Beta Rilis — semua rilis termasuk versi prarilis](https://github.com/TheKingTermux/ira-zte-live-signal-charts/releases):** buka daftar rilis lalu pilih versi beta/prarilis terbaru.
+
+### Pilih berkas sesuai perangkat
+
+Pada halaman rilis yang dipilih, unduh **hanya berkas yang sesuai dengan jenis aplikasi** yang ingin digunakan:
+
+| Jenis aplikasi | Berkas yang perlu diunduh | Keterangan |
+| --- | --- | --- |
+| Windows | Berkas `.exe` | Aplikasi Windows siap dijalankan; tidak perlu memasang Python secara terpisah. |
+| Python | Berkas `.py` (misalnya `router_app.py`) | Jalankan dengan Python setelah memasang dependensi yang dibutuhkan. |
+| Android | Berkas `.apk` | Pasang pada perangkat Android yang kompatibel. |
+
+Jangan mengunduh berkas dari kanal lain jika ingin tetap menggunakan versi yang sama. Pastikan nama versi/tag rilis cocok dengan versi yang ingin digunakan. Jika suatu jenis berkas tidak tersedia pada rilis tersebut, periksa rilis lain atau gunakan metode menjalankan dari kode sumber di bawah.
+
+### Menjalankan dari kode sumber
+
+Jika ingin menjalankan versi Python langsung dari repositori:
+
+1. **Klon repositori**
+   
    ```bash
    git clone https://github.com/TheKingTermux/ira-zte-live-signal-charts.git
    cd ira-zte-live-signal-charts
