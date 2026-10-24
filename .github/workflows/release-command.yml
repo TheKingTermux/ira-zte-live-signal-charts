@@ -126,8 +126,18 @@ jobs:
     permissions:
       contents: read
 
+  build-apk:
+    needs: prepare
+    if: needs.prepare.outputs.tag != ''
+    uses: ./.github/workflows/build-apk.yml
+    with:
+      version: ${{ needs.prepare.outputs.tag }}
+    secrets: inherit
+    permissions:
+      contents: read
+
   publish:
-    needs: [prepare, build]
+    needs: [prepare, build, build-apk]
     if: needs.prepare.outputs.tag != ''
     runs-on: ubuntu-latest
     permissions:
@@ -149,6 +159,11 @@ jobs:
         with:
           name: windows-exe-${{ needs.prepare.outputs.tag }}
           path: release-assets
+      - name: Download Android APK
+        uses: actions/download-artifact@v4
+        with:
+          name: android-apk-${{ needs.prepare.outputs.tag }}
+          path: release-assets
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -160,5 +175,6 @@ jobs:
           prerelease: ${{ needs.prepare.outputs.prerelease }}
           files: |
             release-assets/*.exe
+            release-assets/*.apk
             router_app.py
           fail_on_unmatched_files: true
