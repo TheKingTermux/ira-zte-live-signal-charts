@@ -39,8 +39,28 @@ HTML_CONTENT = """
             max-height: 300px;
             opacity: 1;
         }
+        #settingsBox {
+            height: auto;
+            max-height: 92vh;
+            transition: height 0.32s cubic-bezier(0.22, 1, 0.36, 1), transform 0.25s ease-in-out;
+        }
+        #settingsContent {
+            flex: 0 0 auto;
+            height: 0;
+            max-height: calc(92vh - 190px);
+            transition: height 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+            will-change: height;
+        }
         .tab-pane {
-            transition: opacity 0.25s ease-in-out, transform 0.25s ease-in-out;
+            transition: opacity 0.24s cubic-bezier(0.22, 1, 0.36, 1), transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+            will-change: opacity, transform;
+            scrollbar-gutter: stable;
+        }
+        @media (max-height: 600px) {
+            #settingsContent { max-height: calc(92vh - 165px); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            #settingsBox, #settingsContent, .tab-pane { transition-duration: 0.01ms; }
         }
     </style>
 </head>
@@ -281,7 +301,7 @@ HTML_CONTENT = """
 
     <!-- Settings & Ping Tool Modal (Animated Open/Close + Clean Tab Transitions) -->
     <div id="settingsModal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm opacity-0 pointer-events-none modal-transition">
-        <div id="settingsBox" class="bg-slate-900 border border-slate-800 p-5 rounded-2xl max-w-2xl w-full mx-4 max-h-[92vh] overflow-hidden flex flex-col shadow-2xl text-slate-100 transform scale-95 transition-transform duration-250">
+        <div id="settingsBox" class="bg-slate-900 border border-slate-800 p-5 rounded-2xl max-w-2xl w-full mx-4 max-h-[92vh] overflow-hidden flex flex-col shadow-2xl text-slate-100 transform scale-95">
             <div class="flex justify-between items-center pb-2 border-b border-slate-800">
                 <h3 class="text-sm font-bold text-cyan-400 flex items-center gap-2">⚙️ Pengaturan & Network Tools</h3>
                 <button onclick="animateButton(this); toggleSettingsModal()" class="text-slate-400 hover:text-white text-xs font-bold px-2 py-1 rounded-lg bg-slate-800">✕</button>
@@ -296,9 +316,9 @@ HTML_CONTENT = """
             </div>
 
             <!-- Tab Contents Container -->
-            <div id="settingsContent" class="relative flex-1 min-h-0 overflow-y-auto overscroll-contain pr-1">
+            <div id="settingsContent" class="relative min-h-0 overflow-hidden pr-1">
                 <!-- Tab 1: General Settings -->
-                <div id="tab-general" class="tab-pane space-y-3 pt-1 opacity-100 scale-100">
+                <div id="tab-general" class="tab-pane absolute inset-0 w-full overflow-y-auto overscroll-contain space-y-3 pt-1 pr-1 opacity-100 scale-100 translate-y-0 pointer-events-auto">
                     <div>
                         <label class="text-[11px] font-semibold text-slate-300 block mb-1">Tema Tampilan</label>
                         <select id="setting-theme" onchange="changeTheme(this.value)" class="w-full bg-slate-950 border border-slate-800 text-xs text-slate-200 p-2 rounded-xl focus:outline-none focus:border-cyan-500 transition-all">
@@ -330,7 +350,7 @@ HTML_CONTENT = """
                 </div>
 
                 <!-- Tab 2: Ping Tool -->
-                <div id="tab-ping" class="tab-pane space-y-3 pt-1 opacity-0 scale-95 pointer-events-none hidden">
+                <div id="tab-ping" class="tab-pane absolute inset-0 w-full overflow-y-auto overscroll-contain space-y-3 pt-1 pr-1 opacity-0 scale-[0.985] translate-y-1 pointer-events-none hidden">
                     <div>
                         <label class="text-[11px] font-semibold text-slate-300 block mb-1">Target Host / IP</label>
                         <div class="flex gap-2">
@@ -340,12 +360,12 @@ HTML_CONTENT = """
                     </div>
                     <div>
                         <label class="text-[11px] font-semibold text-slate-300 block mb-1">Hasil Ping</label>
-                        <pre id="ping-output" class="w-full bg-slate-950 border border-slate-800 text-[10px] text-emerald-400 p-2.5 rounded-xl h-24 overflow-y-auto font-mono">Menunggu perintah...</pre>
+                        <pre id="ping-output" class="w-full bg-slate-950 border border-slate-800 text-[10px] text-emerald-400 p-2.5 rounded-xl h-64 min-h-64 max-h-[48vh] overflow-y-auto font-mono whitespace-pre-wrap break-words">Menunggu perintah...</pre>
                     </div>
                 </div>
 
                 <!-- Tab 3: Animated Speed Test -->
-                <div id="tab-speed" class="tab-pane space-y-3 pt-1 opacity-0 scale-95 pointer-events-none hidden">
+                <div id="tab-speed" class="tab-pane absolute inset-0 w-full overflow-y-auto overscroll-contain space-y-3 pt-1 pr-1 opacity-0 scale-[0.985] translate-y-1 pointer-events-none hidden">
                     <div class="flex flex-wrap items-center justify-between gap-2">
                         <div>
                             <div class="text-sm font-bold text-cyan-300">⚡ Internet Speed Test</div>
@@ -423,7 +443,7 @@ HTML_CONTENT = """
                 </div>
 
                 <!-- Tab 4: About & Update Details -->
-                <div id="tab-about" class="tab-pane space-y-3 pt-1 opacity-0 scale-95 pointer-events-none hidden">
+                <div id="tab-about" class="tab-pane absolute inset-0 w-full overflow-y-auto overscroll-contain space-y-3 pt-1 pr-1 opacity-0 scale-[0.985] translate-y-1 pointer-events-none hidden">
                     <div class="rounded-xl border border-cyan-900/70 bg-cyan-950/20 p-4">
                         <div class="text-lg font-black tracking-wide text-cyan-300">IRA ZTE MC8501 5G LIVE SIGNAL CHARTS</div>
                         <div class="text-[11px] text-slate-400 mt-1">Versi aplikasi: <span id="about-app-version" class="text-slate-200 font-semibold">__APP_VERSION__</span></div>
@@ -531,6 +551,7 @@ HTML_CONTENT = """
 
         window.addEventListener('DOMContentLoaded', () => {
             loadSettings();
+            requestAnimationFrame(() => resizeSettingsContent('tab-general', false));
         });
 
         window.addEventListener('pywebviewready', function() {
@@ -622,38 +643,81 @@ HTML_CONTENT = """
             }
         }
 
-        // Clean & Smooth Tab Switcher (No Layout Shifts)
+        // Smooth settings tabs with content-driven modal height.
+        let activeSettingsTab = 'tab-general';
+        let settingsTabTimers = new Map();
+
+        function resizeSettingsContent(tabId = activeSettingsTab, animate = true) {
+            const content = document.getElementById('settingsContent');
+            const pane = document.getElementById(tabId);
+            if (!content || !pane) return;
+
+            // Measure the full content, then cap it to the space available in the viewport.
+            const maxHeight = Math.max(150, Math.min(window.innerHeight * 0.92 - 190, window.innerHeight * 0.92 - 130));
+            const naturalHeight = Math.max(pane.scrollHeight, pane.offsetHeight);
+            const targetHeight = Math.min(naturalHeight, maxHeight);
+            if (!animate) content.style.transition = 'none';
+            content.style.height = `${targetHeight}px`;
+            if (!animate) {
+                void content.offsetHeight;
+                content.style.removeProperty('transition');
+            }
+            pane.style.overflowY = naturalHeight > targetHeight ? 'auto' : 'hidden';
+        }
+
         function switchTab(tabId) {
             const allTabs = ['tab-general', 'tab-ping', 'tab-speed', 'tab-about'];
-            const allBtns = ['btn-tab-general', 'btn-tab-ping', 'btn-tab-speed', 'btn-tab-about'];
+            if (!allTabs.includes(tabId) || tabId === activeSettingsTab) return;
+
+            const previousTab = activeSettingsTab;
+            activeSettingsTab = tabId;
+            const previousPane = document.getElementById(previousTab);
+            const nextPane = document.getElementById(tabId);
+
+            for (const [id, timer] of settingsTabTimers) {
+                clearTimeout(timer);
+                settingsTabTimers.delete(id);
+            }
 
             allTabs.forEach(id => {
-                let pane = document.getElementById(id);
-                if (id === tabId) {
-                    pane.classList.remove('hidden');
-                    void pane.offsetWidth;
-                    pane.classList.remove('opacity-0', 'scale-95', 'pointer-events-none');
-                    pane.classList.add('opacity-100', 'scale-100');
-                } else {
-                    pane.classList.remove('opacity-100', 'scale-100');
-                    pane.classList.add('opacity-0', 'scale-95', 'pointer-events-none');
-                    setTimeout(() => {
-                        if (!pane.classList.contains('opacity-100')) {
-                            pane.classList.add('hidden');
-                        }
-                    }, 250);
-                }
+                const pane = document.getElementById(id);
+                if (id !== previousTab && id !== tabId) pane.classList.add('hidden');
             });
 
-            allBtns.forEach(id => {
-                let btn = document.getElementById(id);
-                if (id === 'btn-' + tabId) {
-                    btn.className = "flex-1 py-2 font-semibold text-cyan-400 border-b-2 border-cyan-400 bg-cyan-500/10 transition-all duration-300";
-                } else {
-                    btn.className = "flex-1 py-2 font-semibold text-slate-400 border-b-2 border-transparent hover:text-slate-200 transition-all duration-300";
-                }
+            nextPane.classList.remove('hidden');
+            nextPane.classList.add('opacity-0', 'scale-[0.985]', 'translate-y-1', 'pointer-events-none');
+            nextPane.classList.remove('opacity-100', 'scale-100', 'translate-y-0', 'pointer-events-auto');
+
+            // Resize the wrapper to this tab's own content; its height animates instead of jumping.
+            resizeSettingsContent(tabId, true);
+
+            previousPane.classList.remove('opacity-100', 'scale-100', 'translate-y-0', 'pointer-events-auto');
+            previousPane.classList.add('opacity-0', 'scale-[0.985]', 'translate-y-1', 'pointer-events-none');
+
+            void nextPane.offsetWidth;
+            requestAnimationFrame(() => {
+                if (activeSettingsTab !== tabId) return;
+                nextPane.classList.remove('opacity-0', 'scale-[0.985]', 'translate-y-1', 'pointer-events-none');
+                nextPane.classList.add('opacity-100', 'scale-100', 'translate-y-0', 'pointer-events-auto');
+            });
+
+            const timer = setTimeout(() => {
+                if (activeSettingsTab !== previousTab) previousPane.classList.add('hidden');
+                settingsTabTimers.delete(previousTab);
+            }, 250);
+            settingsTabTimers.set(previousTab, timer);
+
+            ['general', 'ping', 'speed', 'about'].forEach(name => {
+                const btn = document.getElementById('btn-tab-' + name);
+                const selected = 'tab-' + name === tabId;
+                btn.className = selected
+                    ? 'flex-1 py-2 font-semibold text-cyan-400 border-b-2 border-cyan-400 bg-cyan-500/10 transition-all duration-300'
+                    : 'flex-1 py-2 font-semibold text-slate-400 border-b-2 border-transparent hover:text-slate-200 transition-all duration-300';
+                btn.setAttribute('aria-selected', selected ? 'true' : 'false');
             });
         }
+
+        window.addEventListener('resize', () => resizeSettingsContent(activeSettingsTab, false));
 
         // Manual Reconnect Check Button Handler
         async function manualReconnectCheck() {
@@ -1049,6 +1113,7 @@ HTML_CONTENT = """
         function toggleSettingsModal() {
             let modal = document.getElementById('settingsModal');
             if (modal.classList.contains('pointer-events-none')) {
+                resizeSettingsContent(activeSettingsTab, false);
                 openModal('settingsModal', 'settingsBox');
             } else {
                 closeModal('settingsModal', 'settingsBox');
