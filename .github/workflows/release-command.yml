@@ -1,0 +1,171 @@
+name: Release from /build command
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    if: >-
+      github.event.issue.pull_request == null &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
+      (github.event.comment.body == '/build stable' || github.event.comment.body == '/build beta')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    outputs:
+      mode: ${{ steps.version.outputs.mode }}
+      tag: ${{ steps.version.outputs.tag }}
+      title: ${{ steps.version.outputs.title }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      notes: ${{ steps.version.outputs.notes }}
+    steps:
+      - name: Determine release version
+        id: version
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.comment.body.trim();
+            const mode = body === '/build stable' ? 'stable' : body === '/build beta' ? 'beta' : '';
+            if (!mode) {
+              core.setFailed('Invalid command. Use exactly /build stable or /build beta.');
+              return;
+            }
+
+            const { owner, repo } = context.repo;
+            const releases = await github.paginate(github.rest.repos.listReleases, {
+              owner, repo, per_page: 100
+            });
+            const parseVersion = (tag) => {
+              const match = String(tag).match(/^v?(\d+)\.(\d+)(?:\.(\d+))?(?:[-.]?(?:dev|beta|rc)[.-]?(\d+)?)?$/i);
+              if (!match) return null;
+              return {
+                major: Number(match[1]),
+                minor: Number(match[2]),
+                patch: Number(match[3] || 0),
+                isPre: /(?:dev|beta|rc)/i.test(tag),
+                preNumber: Number(match[4] || 0),
+                tag: String(tag)
+              };
+            };
+            const parsed = releases.map(r => ({ ...r, v: parseVersion(r.tag_name) })).filter(r => r.v);
+            const compare = (a, b) => (a.major - b.major) || (a.minor - b.minor) || (a.patch - b.patch) || (a.preNumber - b.preNumber);
+            const stable = parsed.filter(r => !r.v.isPre).sort((a,b) => compare(b.v, a.v));
+            const prereleases = parsed.filter(r => r.v.isPre).sort((a,b) => compare(b.v, a.v));
+            const latestStable = stable[0]?.v || { major: 1, minor: 0, patch: 0, tag: '1.0' };
+            const latestPre = prereleases[0]?.v || null;
+
+            let tag;
+            if (mode === 'beta') {
+              let base;
+              if (latestPre && compare(latestPre, latestStable) >= 0) {
+                base = { major: latestPre.major, minor: latestPre.minor };
+              } else {
+                base = { major: latestStable.major, minor: latestStable.minor + 1 };
+              }
+              const prefix = String(base.major) + '.' + String(base.minor) + '-dev.';
+              const next = parsed
+                .map(r => r.v.tag)
+                .filter(t => t.startsWith(prefix))
+                .map(t => Number(t.slice(prefix.length)))
+                .filter(Number.isFinite)
+                .reduce((max, n) => Math.max(max, n), 0) + 1;
+              tag = prefix + next;
+            } else {
+              if (latestPre && compare(latestPre, latestStable) > 0) {
+                tag = String(latestPre.major) + '.' + String(latestPre.minor);
+              } else {
+                tag = String(latestStable.major) + '.' + String(latestStable.minor + 1);
+              }
+            }
+
+            if (releases.some(r => r.tag_name === tag)) {
+              core.setFailed('Release tag already exists: ' + tag + '. Inspect releases before retrying.');
+              return;
+            }
+
+            const title = 'IRA ZTE Live Signal Charts v' + tag + (mode === 'beta' ? ' (Beta)' : '');
+            const previousTag = releases[0]?.tag_name || '';
+            let notes = 'Automated ' + mode + ' release for commit ' + context.sha.slice(0, 7) + '.\n\n';
+            if (previousTag) {
+              notes += 'Changes since ' + previousTag + '.\n\n';
+              try {
+                const generated = await github.rest.repos.generateReleaseNotes({
+                  owner, repo, tag_name: tag, target_commitish: 'main', previous_tag_name: previousTag
+                });
+                if (generated.data.body) notes += generated.data.body;
+              } catch (error) {
+                notes += 'Compare changes: https://github.com/' + owner + '/' + repo + '/compare/' + previousTag + '...' + tag;
+              }
+            } else {
+              notes += 'Automated build from the main branch.';
+            }
+
+            core.setOutput('mode', mode);
+            core.setOutput('tag', tag);
+            core.setOutput('title', title);
+            core.setOutput('prerelease', mode === 'beta' ? 'true' : 'false');
+            core.setOutput('notes', notes);
+
+      - name: Acknowledge command
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const mode = '\${{ steps.version.outputs.mode }}';
+            const tag = '\${{ steps.version.outputs.tag }}';
+            await github.rest.issues.createComment({
+              ...context.repo,
+              issue_number: context.issue.number,
+              body: 'Build command accepted: ' + mode + ' release ' + tag + '. The Windows build is starting. Follow progress in the Actions tab.'
+            });
+
+  build:
+    needs: prepare
+    if: needs.prepare.outputs.tag != ''
+    uses: ./.github/workflows/build-exe.yml
+    with:
+      version: ${{ needs.prepare.outputs.tag }}
+    permissions:
+      contents: read
+
+  publish:
+    needs: [prepare, build]
+    if: needs.prepare.outputs.tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Download Windows executable
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-exe-${{ needs.prepare.outputs.tag }}
+          path: release-assets
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: ${{ needs.prepare.outputs.title }}
+          body: ${{ needs.prepare.outputs.notes }}
+          target_commitish: main
+          prerelease: ${{ needs.prepare.outputs.prerelease }}
+          files: |
+            release-assets/*.exe
+            router_app.py
+          fail_on_unmatched_files: true
+      - name: Report successful release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = '\${{ needs.prepare.outputs.tag }}';
+            const url = 'https://github.com/' + context.repo.owner + '/' + context.repo.repo + '/releases/tag/' + tag;
+            await github.rest.issues.createComment({
+              ...context.repo,
+              issue_number: context.issue.number,
+              body: 'Release published successfully: [' + tag + '](' + url + ')'
+            });
