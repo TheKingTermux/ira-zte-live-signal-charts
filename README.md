@@ -1,53 +1,67 @@
 # IRA ZTE MC8501 5G Live Signal Charts
 
-A lightweight desktop dashboard for monitoring live 5G signal telemetry from the **ZTE MC8501** router. The interface is built with Python and an embedded HTML/JavaScript dashboard, with live charts for key radio-signal metrics.
+Aplikasi desktop untuk memantau telemetri sinyal 5G dari router **ZTE MC8501** secara langsung. Antarmuka dibuat menggunakan Python dengan dashboard HTML/JavaScript tertanam, termasuk grafik langsung untuk berbagai metrik sinyal radio.
 
-> **Personal-use project.** The application is currently configured for a router reachable at `http://192.168.0.1`. Update the address in `router_app.py` if your router uses a different LAN IP.
+> [!IMPORTANT]
+> **PENAFIAN, STATUS INDEPENDEN, DAN BATASAN PENGGUNAAN**
+>
+> Proyek ini merupakan proyek **independen untuk eksperimen, pemantauan, dan penggunaan pribadi**. Repositori ini **tidak berafiliasi, tidak disponsori, tidak didukung, tidak dikelola, dan tidak mewakili** merek, perusahaan, badan usaha, penyedia layanan internet, atau organisasi mana pun.
+>
+> Secara khusus, proyek ini **bukan produk resmi, bukan aplikasi resmi, dan bukan bagian dari IRA Internet Rakyat maupun PT. Telemedia Komunikasi Pratama**. Penyebutan nama “IRA”, “Internet Rakyat”, “ZTE”, “MC8501”, atau nama dan merek lain di dalam repositori ini hanya digunakan untuk menjelaskan konteks teknis, perangkat yang kompatibel, atau lingkungan pengujian. Penyebutan tersebut tidak menyatakan adanya hubungan bisnis, kemitraan, dukungan, persetujuan, atau pengesahan dari pemilik merek atau pihak terkait.
+>
+> Aplikasi ini dibuat dan dipelihara secara mandiri oleh pengembang repositori ini. Aplikasi ini tidak dimaksudkan untuk menjadi kanal dukungan pelanggan, alat resmi penyedia layanan, aplikasi konfigurasi resmi, atau pengganti perangkat lunak maupun layanan yang disediakan oleh produsen perangkat dan penyedia layanan internet.
+>
+> **Gunakan dengan risiko sendiri.** Tidak ada jaminan bahwa aplikasi akan selalu berfungsi, kompatibel dengan setiap versi firmware, akurat untuk setiap konfigurasi jaringan, atau tersedia tanpa gangguan. Pengembang proyek ini tidak bertanggung jawab atas gangguan layanan, kehilangan data, perubahan konfigurasi, kerusakan perangkat, atau konsekuensi lain yang timbul dari penggunaan, ketidakmampuan menggunakan, modifikasi, maupun penyalahgunaan aplikasi, sejauh diizinkan oleh hukum yang berlaku.
+>
+> Pengguna bertanggung jawab memastikan bahwa penggunaan aplikasi dan akses ke perangkat/router yang dipantau telah mendapat izin yang sesuai serta mematuhi ketentuan layanan, kebijakan jaringan, dan hukum yang berlaku. Jangan gunakan aplikasi untuk mengakses perangkat atau jaringan milik pihak lain tanpa izin.
+>
+> Nama, logo, merek dagang, dan hak kekayaan intelektual pihak ketiga tetap menjadi milik masing-masing pemiliknya. Repositori ini tidak mengklaim kepemilikan atas merek atau aset pihak ketiga tersebut. Jika pemilik hak menemukan materi yang perlu diklarifikasi atau ditinjau, silakan ajukan laporan melalui kanal Issues di GitHub.
 
-<img width="1084" height="792" alt="2026-10-24 00_15_23-IRA ZTE MC8501 5G LIVE SIGNAL CHARTS" src="https://github.com/user-attachments/assets/de1c79b4-055d-42e5-abd8-5003385a4fb9" />
-<img width="1081" height="757" alt="2026-10-24 00_34_17-IRA ZTE MC8501 5G LIVE SIGNAL CHARTS" src="https://github.com/user-attachments/assets/2fdc4022-4dec-43ed-b3fe-48f25b56d035" />
+Aplikasi saat ini dikonfigurasi untuk mengakses router melalui `http://192.168.0.1`. Jika alamat IP lokal router berbeda, sesuaikan alamat tersebut di `router_app.py`.
 
+<img width="1084" height="792" alt="Tampilan IRA ZTE MC8501 5G Live Signal Charts" src="https://github.com/user-attachments/assets/de1c79b4-055d-42e5-abd8-5003385a4fb9" />
+<img width="1081" height="757" alt="Tampilan dashboard dan grafik sinyal" src="https://github.com/user-attachments/assets/2fdc4022-4dec-43ed-b3fe-48f25b56d035" />
 
-## Features
+## Fitur
 
-- **Live 5G signal charts** for:
-  - **RSRP** — received signal power
-  - **RSSI** — total received signal strength
-  - **RSRQ** — signal quality
-  - **SINR / SNR** — signal quality relative to noise and interference
-- **Live router and network information**, including:
-  - Tower connection status
-  - Internet connectivity status
-  - 5G Cell PCI and Cell ID
-  - Network type, signal-bar level, and active band
-- **Signal-quality labels** ranging from *Mantap* (excellent) to *Buruk* (poor), based on the thresholds shown in the dashboard.
-- **Connection event history** for tower and internet status changes during the current session.
-- **Dashboard settings** for dark/light theme and telemetry refresh interval (1, 2, or 4 seconds).
-- Compact dashboard built with **Tailwind CSS** and **Chart.js**.
+- **Grafik sinyal 5G secara langsung:**
+  - **RSRP** — daya sinyal yang diterima.
+  - **RSSI** — kekuatan sinyal total yang diterima.
+  - **RSRQ** — kualitas sinyal.
+  - **SINR / SNR** — kualitas sinyal relatif terhadap derau dan interferensi.
+- **Informasi router dan jaringan secara langsung**, meliputi:
+  - Status koneksi ke menara seluler.
+  - Status koneksi internet.
+  - PCI dan Cell ID sel 5G.
+  - Jenis jaringan, tingkat indikator sinyal, dan pita frekuensi aktif.
+- **Label kualitas sinyal** dari *Mantap* hingga *Buruk*, berdasarkan ambang batas yang digunakan dashboard.
+- **Riwayat kejadian koneksi** untuk perubahan status menara seluler dan internet selama sesi aplikasi berlangsung.
+- **Pengaturan dashboard** untuk tema gelap/terang dan interval pembaruan telemetri (1, 2, atau 4 detik).
+- Antarmuka ringkas menggunakan **Tailwind CSS** dan **Chart.js**.
 
-## Requirements
+## Persyaratan
 
-- Windows or another desktop platform supported by [pywebview](https://pywebview.flowrl.com/)
-- Python 3.9 or newer recommended
-- A ZTE MC8501 router accessible from the computer running the application
-- Internet access for loading the dashboard's CDN-hosted frontend libraries
+- Windows atau platform desktop lain yang didukung oleh [pywebview](https://pywebview.flowrl.com/).
+- Python 3.9 atau versi lebih baru (disarankan).
+- Router ZTE MC8501 yang dapat diakses dari komputer tempat aplikasi dijalankan.
+- Koneksi internet untuk memuat pustaka antarmuka dari CDN eksternal.
 
-Python packages used by the application:
+Paket Python yang digunakan:
 
 - `requests`
 - `pywebview`
 - `urllib3`
 
-## Installation
+## Instalasi
 
-1. **Clone the repository**
+1. **Klon repositori**
 
    ```bash
    git clone https://github.com/TheKingTermux/ira-zte-live-signal-charts.git
    cd ira-zte-live-signal-charts
    ```
 
-2. **Create and activate a virtual environment** (recommended)
+2. **Buat dan aktifkan lingkungan virtual** (disarankan).
 
    Windows:
 
@@ -63,69 +77,74 @@ Python packages used by the application:
    source .venv/bin/activate
    ```
 
-3. **Install dependencies**
+3. **Pasang dependensi**
 
    ```bash
    python -m pip install requests pywebview urllib3
    ```
 
-## Run
+## Menjalankan aplikasi
 
-Start the dashboard from the repository directory:
+Jalankan perintah berikut dari direktori repositori:
 
 ```bash
 python router_app.py
 ```
 
-The application opens a resizable desktop window titled **IRA ZTE MC8501 5G LIVE SIGNAL CHARTS**.
+Aplikasi akan membuka jendela desktop yang dapat diubah ukurannya dengan judul **IRA ZTE MC8501 5G LIVE SIGNAL CHARTS**.
 
-## Configuration
+## Konfigurasi
 
-The router endpoint is currently defined in `router_app.py`:
+Alamat endpoint router saat ini ditentukan di `router_app.py`:
 
 ```python
 url = f"http://192.168.0.1/ubus/?t={int(time.time() * 1000)}"
 ```
 
-If the router's management IP differs, update the endpoint and the related `Referer` and `Origin` headers to match your router's address. The current implementation queries the router's `zte_nwinfo_api` / `nwinfo_get_netinfo` endpoint, so it is designed around the ZTE router's existing interface rather than being a generic router dashboard.
+Jika alamat IP pengelolaan router berbeda, sesuaikan endpoint serta header `Referer` dan `Origin` yang terkait agar cocok dengan alamat router. Implementasi saat ini menggunakan endpoint `zte_nwinfo_api` / `nwinfo_get_netinfo` milik router. Karena itu, aplikasi dirancang untuk antarmuka internal router ZTE tersebut dan **bukan dashboard universal untuk semua jenis router**.
 
-The dashboard's **Frekuensi Update Data** setting changes the polling interval to 1, 2, or 4 seconds.
+Pengaturan **Frekuensi Update Data** mengubah interval pengambilan data menjadi 1, 2, atau 4 detik.
 
-## Signal metric reference
+## Referensi metrik sinyal
 
-The dashboard uses the following thresholds to label signal quality:
+Dashboard menggunakan ambang batas berikut untuk memberi label kualitas sinyal:
 
-| Metric | Mantap | Bagus | Cukup | Buruk |
+| Metrik | Mantap | Bagus | Cukup | Buruk |
 | --- | ---: | ---: | ---: | ---: |
-| RSRP | ≥ -80 dBm | -81 to -95 dBm | -96 to -110 dBm | < -110 dBm |
-| RSSI | ≥ -70 dBm | -71 to -85 dBm | -86 to -100 dBm | < -100 dBm |
-| RSRQ | ≥ -10 dB | -11 to -15 dB | -16 to -20 dB | < -20 dB |
-| SINR / SNR | ≥ 20 dB | 10 to 19 dB | 0 to 9 dB | < 0 dB |
+| RSRP | ≥ -80 dBm | -81 hingga -95 dBm | -96 hingga -110 dBm | < -110 dBm |
+| RSSI | ≥ -70 dBm | -71 hingga -85 dBm | -86 hingga -100 dBm | < -100 dBm |
+| RSRQ | ≥ -10 dB | -11 hingga -15 dB | -16 hingga -20 dB | < -20 dB |
+| SINR / SNR | ≥ 20 dB | 10 hingga 19 dB | 0 hingga 9 dB | < 0 dB |
 
-These are the dashboard's built-in reference thresholds and are intended as a quick visual guide.
+Ambang batas tersebut merupakan acuan bawaan untuk membantu membaca kondisi sinyal secara cepat, bukan jaminan kualitas layanan atau ukuran universal untuk setiap jaringan.
 
-## Troubleshooting
+## Pemecahan masalah
 
-- **The dashboard stays on “Menghubungkan…” or shows “Terputus…”**
-  - Make sure the computer can open the router's management interface.
-  - Confirm that the router IP in `router_app.py` is correct.
-  - Check that the router's local API endpoint is reachable from your computer.
-- **Signal values are missing or displayed as `-`**
-  - Confirm that the router is connected to the mobile network and that its telemetry response contains the expected 5G fields.
-- **The dashboard layout or charts do not load**
-  - Check your internet connection, because Tailwind CSS and Chart.js are loaded from external CDNs.
+- **Dashboard terus menampilkan “Menghubungkan…” atau “Terputus…”**
+  - Pastikan komputer dapat membuka halaman pengelolaan router.
+  - Pastikan alamat IP router di `router_app.py` sudah benar.
+  - Periksa apakah endpoint API lokal router dapat diakses dari komputer.
+- **Nilai sinyal tidak tersedia atau ditampilkan sebagai `-`**
+  - Pastikan router terhubung ke jaringan seluler dan respons telemetrinya memuat kolom 5G yang diharapkan.
+- **Tata letak dashboard atau grafik tidak muncul**
+  - Periksa koneksi internet karena Tailwind CSS dan Chart.js dimuat dari CDN eksternal.
 
-## Security and privacy notes
+## Keamanan dan privasi
 
-- The application communicates with the router's local management endpoint over **HTTP**, not HTTPS.
-- The current code disables urllib3's insecure-request warning and sends the router request with TLS verification disabled; this is relevant only to the current HTTP/router request implementation and should be reviewed before adapting it to HTTPS.
-- Run this tool only on a trusted local network and do not expose the router management interface to the public internet.
-- The connection history is stored in browser memory for the current application session and is cleared when the app restarts or when you clear the history.
+- Aplikasi berkomunikasi dengan endpoint pengelolaan lokal router menggunakan **HTTP**, bukan HTTPS.
+- Implementasi saat ini menonaktifkan peringatan keamanan permintaan urllib3 dan menggunakan verifikasi TLS yang dinonaktifkan pada permintaan router. Hal ini perlu ditinjau kembali jika kode diadaptasi untuk HTTPS.
+- Jalankan aplikasi hanya di jaringan lokal yang tepercaya. **Jangan paparkan antarmuka pengelolaan router ke internet publik.**
+- Riwayat koneksi disimpan di memori browser selama sesi aplikasi berjalan dan akan dihapus saat aplikasi dimulai ulang atau ketika riwayat dibersihkan.
+- Jangan membagikan tangkapan layar, log, atau berkas konfigurasi yang dapat mengungkap alamat jaringan, identitas perangkat, atau informasi pribadi tanpa memeriksanya terlebih dahulu.
 
-## Project status
+## Status proyek
 
-This project is primarily intended for personal monitoring of a ZTE MC8501 router. Router firmware changes may affect the internal endpoint or the telemetry fields returned by the device.
+Proyek ini terutama ditujukan untuk pemantauan pribadi router ZTE MC8501. Perubahan firmware dapat memengaruhi endpoint internal maupun kolom telemetri yang dikembalikan perangkat. Proyek ini dikelola secara independen dan bukan perangkat lunak resmi dari produsen router atau penyedia layanan internet.
 
-## License
+## Lisensi dan penggunaan ulang
 
-No license has been specified in this repository yet. Unless a license is added, reuse and redistribution are not automatically granted.
+Repositori ini belum menetapkan lisensi perangkat lunak. Sampai lisensi ditambahkan, **jangan menganggap kode atau materi di repositori ini bebas digunakan ulang, dimodifikasi, atau didistribusikan ulang**. Hak atas merek dagang dan aset pihak ketiga tetap berada pada pemilik masing-masing.
+
+---
+
+Jika menemukan masalah atau ingin mengusulkan perubahan, silakan gunakan [Issues](https://github.com/TheKingTermux/ira-zte-live-signal-charts/issues). Harap diingat bahwa repositori ini merupakan proyek independen; kanal tersebut bukan layanan dukungan resmi IRA Internet Rakyat, PT. Telemedia Komunikasi Pratama, atau ZTE.
