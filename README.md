@@ -2,7 +2,7 @@
 
 Aplikasi desktop untuk memantau telemetri sinyal 5G dari router **ZTE MC8501** secara langsung. Antarmuka dibuat menggunakan Python dengan dashboard HTML/JavaScript tertanam, termasuk grafik langsung untuk berbagai metrik sinyal radio.
 
-> [!IMPORTANT]
+> [!PENTING]
 > **PENAFIAN, STATUS INDEPENDEN, DAN BATASAN PENGGUNAAN**
 >
 > Proyek ini merupakan proyek **independen untuk eksperimen, pemantauan, dan penggunaan pribadi**. Repositori ini **tidak berafiliasi, tidak disponsori, tidak didukung, tidak dikelola, dan tidak mewakili** merek, perusahaan, badan usaha, penyedia layanan internet, atau organisasi mana pun.
