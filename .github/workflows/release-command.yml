@@ -10,7 +10,6 @@ permissions:
 jobs:
   prepare:
     if: >-
-      github.event.issue.pull_request == null &&
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
       (github.event.comment.body == '/build stable' || github.event.comment.body == '/build beta')
     runs-on: ubuntu-latest
