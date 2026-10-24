@@ -281,14 +281,14 @@ HTML_CONTENT = """
 
     <!-- Settings & Ping Tool Modal (Animated Open/Close + Clean Tab Transitions) -->
     <div id="settingsModal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm opacity-0 pointer-events-none modal-transition">
-        <div id="settingsBox" class="bg-slate-900 border border-slate-800 p-5 rounded-2xl max-w-2xl w-full mx-4 max-h-[92vh] overflow-y-auto shadow-2xl space-y-4 text-slate-100 transform scale-95 transition-transform duration-250">
+        <div id="settingsBox" class="bg-slate-900 border border-slate-800 p-5 rounded-2xl max-w-2xl w-full mx-4 max-h-[92vh] overflow-hidden flex flex-col shadow-2xl text-slate-100 transform scale-95 transition-transform duration-250">
             <div class="flex justify-between items-center pb-2 border-b border-slate-800">
                 <h3 class="text-sm font-bold text-cyan-400 flex items-center gap-2">⚙️ Pengaturan & Network Tools</h3>
                 <button onclick="animateButton(this); toggleSettingsModal()" class="text-slate-400 hover:text-white text-xs font-bold px-2 py-1 rounded-lg bg-slate-800">✕</button>
             </div>
             
             <!-- Modal Tabs Header -->
-            <div class="flex border-b border-slate-800 text-xs">
+            <div class="flex border-b border-slate-800 text-xs shrink-0">
                 <button onclick="switchTab('tab-general')" id="btn-tab-general" class="flex-1 py-2 font-semibold text-cyan-400 border-b-2 border-cyan-400 bg-cyan-500/10 transition-all duration-300">Pengaturan Umum</button>
                 <button onclick="switchTab('tab-ping')" id="btn-tab-ping" class="flex-1 py-2 font-semibold text-slate-400 border-b-2 border-transparent hover:text-slate-200 transition-all duration-300">Ping Tool</button>
                 <button onclick="switchTab('tab-speed')" id="btn-tab-speed" class="flex-1 py-2 font-semibold text-slate-400 border-b-2 border-transparent hover:text-slate-200 transition-all duration-300">Speed Test</button>
@@ -296,9 +296,9 @@ HTML_CONTENT = """
             </div>
 
             <!-- Tab Contents Container -->
-            <div class="relative min-h-[410px]">
+            <div id="settingsContent" class="relative flex-1 min-h-0 overflow-y-auto overscroll-contain pr-1">
                 <!-- Tab 1: General Settings -->
-                <div id="tab-general" class="tab-pane absolute inset-x-0 top-0 space-y-3 pt-1 opacity-100 scale-100">
+                <div id="tab-general" class="tab-pane space-y-3 pt-1 opacity-100 scale-100">
                     <div>
                         <label class="text-[11px] font-semibold text-slate-300 block mb-1">Tema Tampilan</label>
                         <select id="setting-theme" onchange="changeTheme(this.value)" class="w-full bg-slate-950 border border-slate-800 text-xs text-slate-200 p-2 rounded-xl focus:outline-none focus:border-cyan-500 transition-all">
@@ -347,7 +347,7 @@ HTML_CONTENT = """
                 </div>
 
                 <!-- Tab 2: Ping Tool -->
-                <div id="tab-ping" class="tab-pane absolute inset-x-0 top-0 space-y-3 pt-1 opacity-0 scale-95 pointer-events-none hidden">
+                <div id="tab-ping" class="tab-pane space-y-3 pt-1 opacity-0 scale-95 pointer-events-none hidden">
                     <div>
                         <label class="text-[11px] font-semibold text-slate-300 block mb-1">Target Host / IP</label>
                         <div class="flex gap-2">
@@ -362,7 +362,7 @@ HTML_CONTENT = """
                 </div>
 
                 <!-- Tab 3: Animated Speed Test -->
-                <div id="tab-speed" class="tab-pane absolute inset-x-0 top-0 space-y-3 pt-1 opacity-0 scale-95 pointer-events-none hidden">
+                <div id="tab-speed" class="tab-pane space-y-3 pt-1 opacity-0 scale-95 pointer-events-none hidden">
                     <div class="flex flex-wrap items-center justify-between gap-2">
                         <div>
                             <div class="text-sm font-bold text-cyan-300">⚡ Internet Speed Test</div>
@@ -440,7 +440,7 @@ HTML_CONTENT = """
                 </div>
 
                 <!-- Tab 4: About & Update Details -->
-                <div id="tab-about" class="tab-pane absolute inset-x-0 top-0 space-y-3 pt-1 opacity-0 scale-95 pointer-events-none hidden">
+                <div id="tab-about" class="tab-pane space-y-3 pt-1 opacity-0 scale-95 pointer-events-none hidden">
                     <div class="rounded-xl border border-cyan-900/70 bg-cyan-950/20 p-4">
                         <div class="text-lg font-black tracking-wide text-cyan-300">IRA ZTE MC8501 5G LIVE SIGNAL CHARTS</div>
                         <div class="text-[11px] text-slate-400 mt-1">Versi aplikasi: <span id="about-app-version" class="text-slate-200 font-semibold">__APP_VERSION__</span></div>
@@ -462,7 +462,7 @@ HTML_CONTENT = """
                 </div>
             </div>
 
-            <div class="pt-2 flex justify-end border-t border-slate-800 mt-4">
+            <div class="pt-3 flex justify-end border-t border-slate-800 mt-3 shrink-0 bg-slate-900">
                 <button onclick="animateButton(this); toggleSettingsModal()" class="w-full bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold py-2.5 rounded-xl shadow-lg transition-all active:scale-95">Tutup</button>
             </div>
         </div>
