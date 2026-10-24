@@ -1,0 +1,72 @@
+name: Build Windows EXE
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Optional version label for the build"
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      version:
+        description: "Version label used for the build artifact"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Windows executable
+    runs-on: windows-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Set build version
+        id: version
+        shell: pwsh
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          $version = $env:INPUT_VERSION
+          if ([string]::IsNullOrWhiteSpace($version)) {
+            $version = "manual-$($env:RUN_NUMBER)"
+          }
+          "value=$version" >> $env:GITHUB_OUTPUT
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller pywebview requests urllib3
+      - name: Check Python syntax
+        run: python -m py_compile router_app.py
+      - name: Build EXE
+        run: >-
+          python -m PyInstaller --clean --noconfirm --onefile --windowed
+          --collect-all webview
+          --name IRA_ZTE_Live_Signal_Charts
+          router_app.py
+      - name: Rename executable
+        shell: pwsh
+        env:
+          BUILD_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          $source = "dist/IRA_ZTE_Live_Signal_Charts.exe"
+          $target = "dist/IRA_ZTE_Live_Signal_Charts-$($env:BUILD_VERSION).exe"
+          if (!(Test-Path $source)) { throw "PyInstaller did not produce the expected EXE: $source" }
+          Move-Item -LiteralPath $source -Destination $target
+          Write-Host "Created $target"
+      - name: Upload EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-exe-${{ steps.version.outputs.value }}
+          path: dist/IRA_ZTE_Live_Signal_Charts-${{ steps.version.outputs.value }}.exe
+          if-no-files-found: error
+          retention-days: 14
