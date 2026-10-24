@@ -10,7 +10,7 @@ permissions:
 jobs:
   prepare:
     if: >-
-      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
+      github.event.comment.user.login == github.repository_owner &&
       (github.event.comment.body == '/build stable' || github.event.comment.body == '/build beta')
     runs-on: ubuntu-latest
     permissions:
