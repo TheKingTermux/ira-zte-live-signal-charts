@@ -53,7 +53,8 @@ jobs:
               };
             };
             const parsed = releases.map(r => ({ ...r, v: parseVersion(r.tag_name) })).filter(r => r.v);
-            const compare = (a, b) => (a.major - b.major) || (a.minor - b.minor) || (a.patch - b.patch) || (a.preNumber - b.preNumber);
+            const compareBase = (a, b) => (a.major - b.major) || (a.minor - b.minor) || (a.patch - b.patch);
+            const compare = (a, b) => compareBase(a, b) || (a.preNumber - b.preNumber);
             const stable = parsed.filter(r => !r.v.isPre).sort((a,b) => compare(b.v, a.v));
             const prereleases = parsed.filter(r => r.v.isPre).sort((a,b) => compare(b.v, a.v));
             const latestStable = stable[0]?.v || { major: 1, minor: 0, patch: 0, tag: '1.0' };
@@ -62,7 +63,7 @@ jobs:
             let tag;
             if (mode === 'beta') {
               let base;
-              if (latestPre && compare(latestPre, latestStable) >= 0) {
+              if (latestPre && compareBase(latestPre, latestStable) > 0) {
                 base = { major: latestPre.major, minor: latestPre.minor };
               } else {
                 base = { major: latestStable.major, minor: latestStable.minor + 1 };
@@ -76,7 +77,7 @@ jobs:
                 .reduce((max, n) => Math.max(max, n), 0) + 1;
               tag = prefix + next;
             } else {
-              if (latestPre && compare(latestPre, latestStable) > 0) {
+              if (latestPre && compareBase(latestPre, latestStable) > 0) {
                 tag = String(latestPre.major) + '.' + String(latestPre.minor);
               } else {
                 tag = String(latestStable.major) + '.' + String(latestStable.minor + 1);
