@@ -319,23 +319,6 @@ HTML_CONTENT = """
                         <button onclick="animateButton(this); resetPopupPreferences()" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-semibold px-3 py-2 rounded-lg transition-all">Reset Notifikasi Gangguan</button>
                         <p class="text-[10px] text-slate-500">Reset mengaktifkan kembali notifikasi gangguan tower dan internet. Notifikasi koneksi pulih tetap aktif.</p>
                     </div>
-                    <div class="rounded-xl border border-slate-800 bg-slate-950/50 p-3 space-y-2">
-                        <div class="text-[11px] font-semibold text-slate-300">Pembaruan Aplikasi</div>
-                        <label class="text-[10px] text-slate-400 block mb-1">Saluran rilis</label>
-                        <select id="setting-update-channel" onchange="saveUpdatePreferences(); checkForUpdates(true)" class="w-full bg-slate-950 border border-slate-800 text-xs text-slate-200 p-2 rounded-xl focus:outline-none focus:border-cyan-500">
-                            <option value="stable">Stable — rilis resmi</option>
-                            <option value="beta">Beta — pre-release</option>
-                        </select>
-                        <label class="flex items-center gap-2 text-[11px] text-slate-300">
-                            <input id="setting-auto-update-check" type="checkbox" onchange="saveUpdatePreferences()" class="accent-cyan-500">
-                            Pasang update otomatis saat aplikasi dibuka
-                        </label>
-                        <div class="flex gap-2">
-                            <button id="btn-check-update" onclick="checkForUpdates(false)" class="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-semibold px-3 py-2 rounded-lg">🔎 Periksa Update</button>
-                            <button id="btn-install-update" onclick="installAvailableUpdate()" disabled class="flex-1 bg-cyan-700 hover:bg-cyan-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-[10px] font-semibold px-3 py-2 rounded-lg">⬇ Unduh & Pasang</button>
-                        </div>
-                        <p id="update-status" class="text-[10px] text-slate-400">Belum memeriksa update.</p>
-                    </div>
                     <div>
                         <label class="text-[11px] font-semibold text-slate-300 block mb-1">Frekuensi Update Data (Refresh Rate)</label>
                         <select id="setting-freq" onchange="changeFrequency(this.value)" class="w-full bg-slate-950 border border-slate-800 text-xs text-slate-200 p-2 rounded-xl focus:outline-none focus:border-cyan-500 transition-all">
@@ -454,10 +437,29 @@ HTML_CONTENT = """
                             <button onclick="openExternalUrl('https://github.com/TheKingTermux/ira-zte-live-signal-charts/releases')" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-semibold px-3 py-2 rounded-lg">↗ Semua Release</button>
                         </div>
                     </div>
-                    <div class="rounded-xl border border-slate-800 bg-slate-950/50 p-3 space-y-2">
-                        <div class="text-[11px] font-bold text-cyan-300">Pembaruan</div>
-                        <p class="text-[10px] text-slate-400">Pilih kanal Stable untuk rilis reguler atau Beta untuk versi pre-release. Jika pemasangan otomatis aktif, update yang cocok akan diunduh dan dipasang saat aplikasi dibuka. Nonaktifkan opsi di Pengaturan Umum untuk memasang secara manual.</p>
-                        <p id="about-update-details" class="text-[10px] text-slate-400">Belum ada informasi release.</p>
+                    <div class="rounded-xl border border-slate-800 bg-slate-950/50 p-3 space-y-3">
+                        <div class="text-[11px] font-bold text-cyan-300">Pembaruan Aplikasi</div>
+                        <p class="text-[10px] text-slate-400">Pilih kanal Stable untuk rilis reguler atau Beta untuk versi pre-release. Jika pemasangan otomatis aktif, update yang cocok akan diunduh dan dipasang saat aplikasi dibuka. Pengaturan kanal dan pemasangan otomatis tersedia di sini.</p>
+                        <div>
+                            <label class="text-[10px] text-slate-400 block mb-1">Saluran rilis</label>
+                            <select id="setting-update-channel" onchange="saveUpdatePreferences(); checkForUpdates(true)" class="w-full bg-slate-950 border border-slate-800 text-xs text-slate-200 p-2 rounded-xl focus:outline-none focus:border-cyan-500">
+                                <option value="stable">Stable — rilis resmi</option>
+                                <option value="beta">Beta — pre-release</option>
+                            </select>
+                        </div>
+                        <label class="flex items-center gap-2 text-[11px] text-slate-300">
+                            <input id="setting-auto-update-check" type="checkbox" onchange="saveUpdatePreferences()" class="accent-cyan-500">
+                            Periksa dan pasang update otomatis saat aplikasi dibuka
+                        </label>
+                        <div class="flex flex-col sm:flex-row gap-2">
+                            <button id="btn-check-update" onclick="checkForUpdates(false)" class="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-semibold px-3 py-2 rounded-lg">🔎 Periksa Update</button>
+                            <button id="btn-install-update" onclick="installAvailableUpdate()" disabled class="flex-1 bg-cyan-700 hover:bg-cyan-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-[10px] font-semibold px-3 py-2 rounded-lg">⬇ Unduh & Pasang</button>
+                        </div>
+                        <p id="update-status" class="text-[10px] text-slate-400">Belum memeriksa update.</p>
+                        <div class="border-t border-slate-800 pt-3">
+                            <div class="text-[11px] font-bold text-cyan-300 mb-1">Informasi Release</div>
+                            <p id="about-update-details" class="text-[10px] text-slate-400">Belum ada informasi release.</p>
+                        </div>
                     </div>
                 </div>
             </div>
