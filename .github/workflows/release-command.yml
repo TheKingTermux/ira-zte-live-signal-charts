@@ -114,10 +114,10 @@ jobs:
 
       - name: Acknowledge command
         uses: actions/github-script@v7
+        env:
+          BUILD_MODE: ${{ steps.version.outputs.mode }}
+          BUILD_TAG: ${{ steps.version.outputs.tag }}
         with:
-          env:
-            BUILD_MODE: ${{ steps.version.outputs.mode }}
-            BUILD_TAG: ${{ steps.version.outputs.tag }}
           script: |
             const mode = process.env.BUILD_MODE;
             const tag = process.env.BUILD_TAG;
@@ -165,9 +165,9 @@ jobs:
           fail_on_unmatched_files: true
       - name: Report successful release
         uses: actions/github-script@v7
+        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         with:
-          env:
-            RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
           script: |
             const tag = process.env.RELEASE_TAG;
             const url = 'https://github.com/' + context.repo.owner + '/' + context.repo.repo + '/releases/tag/' + tag;
