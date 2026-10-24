@@ -93,7 +93,7 @@ jobs:
               return;
             }
 
-            const title = 'IRA ZTE Live Signal Charts v' + tag + (mode === 'beta' ? ' (Beta)' : '');
+            const title = 'v' + tag + (mode === 'beta' ? ' (Beta)' : '');
             const previousTag = releases[0]?.tag_name || '';
             let notes = 'Automated ' + mode + ' release for commit ' + context.sha.slice(0, 7) + '.\n\n';
             if (previousTag) {
