@@ -126,7 +126,7 @@ jobs:
 
             await stampFile('router_app.py', source => {
               const updated = source.replace(
-                /^APP_VERSION\\s*=\\s*["'][^"']*["']/m,
+                /^APP_VERSION\s*=\s*["'][^"']*["']/m,
                 'APP_VERSION = "' + tag + '"'
               );
               if (updated === source) throw new Error('APP_VERSION assignment not found in router_app.py');
@@ -135,7 +135,7 @@ jobs:
 
             await stampFile('android/app/build.gradle', source => {
               const updated = source.replace(
-                /versionName\\s+['"][^'"]*['"]/,
+                /versionName\s+['"][^'"]*['"]/,
                 "versionName '" + tag + "'"
               );
               if (updated === source) throw new Error('versionName assignment not found in android/app/build.gradle');
