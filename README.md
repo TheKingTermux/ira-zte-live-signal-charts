@@ -57,13 +57,13 @@ Paket Python yang digunakan:
 Pilih kanal rilis sesuai kebutuhan. **Stable** direkomendasikan untuk penggunaan sehari-hari, sedangkan **Beta** berisi versi pengujian yang mungkin masih memiliki bug.
 
 <p align="center">
-  <a href="https://github.com/TheKingTermux/ira-zte-live-signal-charts/releases/latest"><img src="https://img.shields.io/badge/Unduh-Stable%20Rilis-1976D2?style=for-the-badge&logo=github&logoColor=white" alt="Unduh Stable Rilis"></a>
+  <a href="https://github.com/TheKingTermux/ira-zte-live-signal-charts/releases/latest"><img src="https://img.shields.io/badge/Unduh-Stable%20Rilis-1976D2?style=for-the-badge&logo=github&logoColor=white" alt="Unduh Rilis Stable"></a>
   &nbsp;
-  <a href="https://github.com/TheKingTermux/ira-zte-live-signal-charts/releases"><img src="https://img.shields.io/badge/Unduh-Beta%20Rilis-8E44AD?style=for-the-badge&logo=github&logoColor=white" alt="Unduh Beta Rilis"></a>
+  <a href="https://github.com/TheKingTermux/ira-zte-live-signal-charts/releases"><img src="https://img.shields.io/badge/Unduh-Beta%20Rilis-8E44AD?style=for-the-badge&logo=github&logoColor=white" alt="Unduh Rilis Beta"></a>
 </p>
 
-- **[Stable Rilis — versi stabil terbaru](https://github.com/TheKingTermux/ira-zte-live-signal-charts/releases/latest):** pilih ini jika mengutamakan versi yang ditandai sebagai rilis stabil.
-- **[Beta Rilis — semua rilis termasuk versi prarilis](https://github.com/TheKingTermux/ira-zte-live-signal-charts/releases):** buka daftar rilis lalu pilih versi beta/prarilis terbaru.
+- **[Rilis Stable — versi stabil terbaru](https://github.com/TheKingTermux/ira-zte-live-signal-charts/releases/latest):** pilih ini jika mengutamakan versi yang ditandai sebagai rilis stabil.
+- **[Rilis Beta — semua rilis termasuk versi prarilis](https://github.com/TheKingTermux/ira-zte-live-signal-charts/releases):** buka daftar rilis lalu pilih versi beta/prarilis terbaru.
 
 ### Pilih berkas sesuai perangkat
 
