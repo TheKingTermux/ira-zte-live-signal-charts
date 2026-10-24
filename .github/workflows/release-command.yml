@@ -9,9 +9,7 @@ permissions:
 
 jobs:
   prepare:
-    if: >-
-      github.event.comment.user.login == github.repository_owner &&
-      (github.event.comment.body == '/build stable' || github.event.comment.body == '/build beta')
+    if: github.event.comment.user.login == github.repository_owner
     runs-on: ubuntu-latest
     permissions:
       contents: read
