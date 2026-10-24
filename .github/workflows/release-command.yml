@@ -138,6 +138,7 @@ jobs:
     uses: ./.github/workflows/build-apk.yml
     with:
       version: ${{ needs.prepare.outputs.tag }}
+      source_ref: ${{ needs.prepare.outputs.source_ref }}
     secrets: inherit
     permissions:
       contents: read
