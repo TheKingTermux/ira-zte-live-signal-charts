@@ -20,6 +20,7 @@ jobs:
       title: ${{ steps.version.outputs.title }}
       prerelease: ${{ steps.version.outputs.prerelease }}
       notes: ${{ steps.version.outputs.notes }}
+      source_ref: ${{ steps.version.outputs.source_ref }}
     steps:
       - name: Generate Bot Token
         id: get_bug_bot_token
@@ -41,6 +42,9 @@ jobs:
             }
 
             const { owner, repo } = context.repo;
+            const sourceRef = mode === 'stable' ? 'main' : 'dev';
+            const sourceBranch = await github.rest.repos.getBranch({ owner, repo, branch: sourceRef });
+            const sourceSha = sourceBranch.data.commit.sha;
             const releases = await github.paginate(github.rest.repos.listReleases, {
               owner, repo, per_page: 100
             });
@@ -93,21 +97,21 @@ jobs:
               return;
             }
 
-            const title = 'v' + tag);
+            const title = 'v' + tag;
             const previousTag = releases[0]?.tag_name || '';
             let notes = 'Automated ' + mode + ' release for commit ' + context.sha.slice(0, 7) + '.\n\n';
             if (previousTag) {
               notes += 'Changes since ' + previousTag + '.\n\n';
               try {
                 const generated = await github.rest.repos.generateReleaseNotes({
-                  owner, repo, tag_name: tag, target_commitish: 'main', previous_tag_name: previousTag
+                  owner, repo, tag_name: tag, target_commitish: sourceRef, previous_tag_name: previousTag
                 });
                 if (generated.data.body) notes += generated.data.body;
               } catch (error) {
                 notes += 'Compare changes: https://github.com/' + owner + '/' + repo + '/compare/' + previousTag + '...' + tag;
               }
             } else {
-              notes += 'Automated build from the main branch.';
+              notes += 'Automated build from the ' + sourceRef + ' branch.';
             }
 
             core.setOutput('mode', mode);
@@ -115,6 +119,7 @@ jobs:
             core.setOutput('title', title);
             core.setOutput('prerelease', mode === 'beta' ? 'true' : 'false');
             core.setOutput('notes', notes);
+            core.setOutput('source_ref', sourceRef);
 
   build:
     needs: prepare
@@ -122,6 +127,7 @@ jobs:
     uses: ./.github/workflows/build-exe.yml
     with:
       version: ${{ needs.prepare.outputs.tag }}
+      source_ref: ${{ needs.prepare.outputs.source_ref }}
     secrets: inherit
     permissions:
       contents: read
@@ -132,6 +138,7 @@ jobs:
     uses: ./.github/workflows/build-apk.yml
     with:
       version: ${{ needs.prepare.outputs.tag }}
+      source_ref: ${{ needs.prepare.outputs.source_ref }}
     secrets: inherit
     permissions:
       contents: read
@@ -154,6 +161,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ steps.get_bug_bot_token.outputs.token }}
+          ref: ${{ needs.prepare.outputs.source_ref }}
       - name: Download Windows executable
         uses: actions/download-artifact@v4
         with:
@@ -171,7 +179,7 @@ jobs:
           tag_name: ${{ needs.prepare.outputs.tag }}
           name: ${{ needs.prepare.outputs.title }}
           body: ${{ needs.prepare.outputs.notes }}
-          target_commitish: main
+          target_commitish: ${{ needs.prepare.outputs.source_ref }}
           prerelease: ${{ needs.prepare.outputs.prerelease }}
           files: |
             release-assets/*.exe
