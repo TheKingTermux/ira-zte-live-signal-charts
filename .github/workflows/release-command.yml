@@ -109,21 +109,6 @@ jobs:
             core.setOutput('prerelease', mode === 'beta' ? 'true' : 'false');
             core.setOutput('notes', notes);
 
-      - name: Acknowledge command
-        uses: actions/github-script@v7
-        env:
-          BUILD_MODE: ${{ steps.version.outputs.mode }}
-          BUILD_TAG: ${{ steps.version.outputs.tag }}
-        with:
-          script: |
-            const mode = process.env.BUILD_MODE;
-            const tag = process.env.BUILD_TAG;
-            await github.rest.issues.createComment({
-              ...context.repo,
-              issue_number: context.issue.number,
-              body: 'Build command accepted: ' + mode + ' release ' + tag + '. The Windows build is starting. Follow progress in the Actions tab.'
-            });
-
   build:
     needs: prepare
     if: needs.prepare.outputs.tag != ''
@@ -160,16 +145,3 @@ jobs:
             release-assets/*.exe
             router_app.py
           fail_on_unmatched_files: true
-      - name: Report successful release
-        uses: actions/github-script@v7
-        env:
-          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
-        with:
-          script: |
-            const tag = process.env.RELEASE_TAG;
-            const url = 'https://github.com/' + context.repo.owner + '/' + context.repo.repo + '/releases/tag/' + tag;
-            await github.rest.issues.createComment({
-              ...context.repo,
-              issue_number: context.issue.number,
-              body: 'Release published successfully: [' + tag + '](' + url + ')'
-            });
