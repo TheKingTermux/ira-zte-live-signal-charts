@@ -22,8 +22,16 @@ jobs:
     name: Build Windows executable
     runs-on: windows-latest
     steps:
+      - name: Generate Bot Token
+        id: get_bug_bot_token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
       - name: Checkout source
         uses: actions/checkout@v4
+        with:
+          token: ${{ steps.get_bug_bot_token.outputs.token }}
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
