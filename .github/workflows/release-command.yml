@@ -12,7 +12,7 @@ jobs:
     if: github.event.comment.user.login == github.repository_owner
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       issues: write
     outputs:
       mode: ${{ steps.version.outputs.mode }}
@@ -28,6 +28,7 @@ jobs:
         with:
           client-id: ${{ secrets.BOT_APP_ID }}
           private-key: ${{ secrets.BOT_PRIVATE_KEY }}
+          permission-contents: write
       - name: Determine release version
         id: version
         uses: actions/github-script@v7
@@ -97,6 +98,50 @@ jobs:
               return;
             }
 
+            // Create an isolated, version-stamped source branch. Never mutate main/dev.
+            const buildBranch = 'automation/build-' + tag.replace(/[^A-Za-z0-9._-]/g, '-') + '-' + context.runId;
+            await github.rest.git.createRef({
+              owner, repo, ref: 'refs/heads/' + buildBranch, sha: sourceSha
+            });
+
+            const stampFile = async (path, transform) => {
+              const response = await github.rest.repos.getContent({
+                owner, repo, path, ref: buildBranch
+              });
+              if (Array.isArray(response.data) || !response.data.content || !response.data.sha) {
+                throw new Error('Unable to read source file for version stamping: ' + path);
+              }
+              const original = Buffer.from(response.data.content, 'base64').toString('utf8');
+              const updated = transform(original);
+              if (updated === original) {
+                throw new Error('Version marker was not found or already matches in ' + path);
+              }
+              await github.rest.repos.createOrUpdateFileContents({
+                owner, repo, path, branch: buildBranch,
+                message: 'chore: stamp build version ' + tag,
+                sha: response.data.sha,
+                content: Buffer.from(updated, 'utf8').toString('base64')
+              });
+            };
+
+            await stampFile('router_app.py', source => {
+              const updated = source.replace(
+                /^APP_VERSION\s*=\s*["'][^"']*["']/m,
+                'APP_VERSION = "' + tag + '"'
+              );
+              if (updated === source) throw new Error('APP_VERSION assignment not found in router_app.py');
+              return updated;
+            });
+
+            await stampFile('android/app/build.gradle', source => {
+              const updated = source.replace(
+                /versionName\s+['"][^'"]*['"]/,
+                "versionName '" + tag + "'"
+              );
+              if (updated === source) throw new Error('versionName assignment not found in android/app/build.gradle');
+              return updated;
+            });
+
             const title = 'v' + tag;
             const previousTag = releases[0]?.tag_name || '';
             let notes = 'Automated ' + mode + ' release for commit ' + context.sha.slice(0, 7) + '.\n\n';
@@ -119,7 +164,7 @@ jobs:
             core.setOutput('title', title);
             core.setOutput('prerelease', mode === 'beta' ? 'true' : 'false');
             core.setOutput('notes', notes);
-            core.setOutput('source_ref', sourceRef);
+            core.setOutput('source_ref', buildBranch);
 
   build:
     needs: prepare
