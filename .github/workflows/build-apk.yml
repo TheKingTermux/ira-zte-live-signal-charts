@@ -13,6 +13,10 @@ on:
         description: "Version label used for the APK artifact"
         required: true
         type: string
+      source_ref:
+        description: "Branch to build; defaults to the triggering ref"
+        required: false
+        type: string
 
 permissions:
   contents: read
