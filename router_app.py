@@ -1302,6 +1302,29 @@ HTML_CONTENT = """
             const minValue = Math.min(...values);
             const maxValue = Math.max(...values);
             const span = maxValue - minValue;
+            // Center the newest sample vertically: use a symmetric Y range around
+            // the latest reading while retaining a sensible scale for the history.
+            const latestValue = Number(chart.data.datasets[0].data.slice(-1)[0]);
+            if (Number.isFinite(latestValue)) {
+                const deviation = Math.max(
+                    Math.abs(latestValue - minValue),
+                    Math.abs(maxValue - latestValue)
+                );
+                const centeredSpan = Math.max(deviation * 1.25, 1);
+                let centeredStep;
+                if (centeredSpan <= 2) centeredStep = 1;
+                else {
+                    const rawStep = (centeredSpan * 2) / 4;
+                    const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
+                    const normalized = rawStep / magnitude;
+                    centeredStep = (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10) * magnitude;
+                }
+                const halfRange = Math.max(centeredStep * 2, Math.ceil(centeredSpan / centeredStep) * centeredStep);
+                chart.options.scales.y.min = Number((latestValue - halfRange).toFixed(6));
+                chart.options.scales.y.max = Number((latestValue + halfRange).toFixed(6));
+                chart.options.scales.y.ticks.stepSize = centeredStep;
+                return;
+            }
             let step;
             if (span <= 3) {
                 step = 1;
