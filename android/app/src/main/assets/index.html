@@ -12,6 +12,25 @@
         .modal-transition {
             transition: opacity 0.25s ease, transform 0.25s ease;
         }
+
+        /* Keep the WebView layout inside the device viewport. Chart.js canvases
+           otherwise retain their intrinsic width inside flex/grid containers. */
+        *, *::before, *::after { box-sizing: border-box; }
+        html, body { width: 100%; max-width: 100%; overflow-x: hidden; }
+        main, .card-bg, .card-bg > div, .card-bg canvas { min-width: 0; }
+        .chart-container {
+            position: relative;
+            flex: 1 1 0%;
+            width: 0;
+            min-width: 0;
+            max-width: 100%;
+            overflow: hidden;
+        }
+        .chart-container canvas {
+            display: block;
+            width: 100% !important;
+            max-width: 100% !important;
+        }
     
         @media (max-width: 600px) {
             body { height: auto !important; min-height: 100vh; overflow-y: auto !important; }
@@ -81,7 +100,7 @@
                     <span class="text-[9px] text-slate-400 -mt-0.5">Daya Terima Sinyal</span>
                     <div id="val-rsrp" class="text-base font-bold text-slate-100 leading-tight">- dBm</div>
                 </div>
-                <div class="h-12 w-full relative flex-grow">
+                <div class="chart-container h-12">
                     <canvas id="chartRsrp"></canvas>
                 </div>
             </div>
@@ -99,7 +118,7 @@
                     <span class="text-[9px] text-slate-400 -mt-0.5">Kekuatan Total & Derau</span>
                     <div id="val-rssi" class="text-base font-bold text-slate-100 leading-tight">- dBm</div>
                 </div>
-                <div class="h-12 w-full relative flex-grow">
+                <div class="chart-container h-12">
                     <canvas id="chartRssi"></canvas>
                 </div>
             </div>
@@ -117,7 +136,7 @@
                     <span class="text-[9px] text-slate-400 -mt-0.5">Kualitas Sinyal</span>
                     <div id="val-rsrq" class="text-base font-bold text-slate-100 leading-tight">- dB</div>
                 </div>
-                <div class="h-12 w-full relative flex-grow">
+                <div class="chart-container h-12">
                     <canvas id="chartRsrq"></canvas>
                 </div>
             </div>
@@ -135,7 +154,7 @@
                     <span class="text-[9px] text-slate-400 -mt-0.5">Kebersihan Sinyal</span>
                     <div id="val-sinr" class="text-base font-bold text-slate-100 leading-tight">- dB</div>
                 </div>
-                <div class="h-12 w-full relative flex-grow">
+                <div class="chart-container h-12">
                     <canvas id="chartSinr"></canvas>
                 </div>
             </div>
@@ -148,7 +167,7 @@
                 <h2 class="text-xs font-bold text-cyan-400">📈 Ping Latency (1.1.1.1)</h2>
                 <span id="ping-live-value" class="text-xs font-bold text-fuchsia-300">Menunggu ping…</span>
             </div>
-            <div class="h-20 w-full relative"><canvas id="chartPing"></canvas></div>
+            <div class="chart-container h-20"><canvas id="chartPing"></canvas></div>
         </div>
 
         <!-- Tower Information Panel (Added Cell ID 5G & Internet Status) -->
