@@ -269,6 +269,40 @@ jobs:
               body: '✅ **Build sudah selesai!** Rilis ' + title + ' berhasil diterbitkan. Silakan lihat dan unduh hasilnya di [GitHub Releases](' + url + ').'
             });
 
+
+  cleanup-build-branch:
+    needs: [prepare, publish]
+    if: needs.publish.result == 'success' && needs.prepare.outputs.source_ref != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Generate Bot Token
+        id: get_bug_bot_token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
+          permission-contents: write
+      - name: Delete temporary build branch
+        uses: actions/github-script@v7
+        env:
+          BUILD_BRANCH: ${{ needs.prepare.outputs.source_ref }}
+        with:
+          github-token: ${{ steps.get_bug_bot_token.outputs.token }}
+          script: |
+            const { owner, repo } = context.repo;
+            const branch = process.env.BUILD_BRANCH;
+            if (!branch.startsWith('automation/build-')) {
+              throw new Error('Refusing to delete a branch outside automation/build-*: ' + branch);
+            }
+            await github.rest.git.deleteRef({
+              owner,
+              repo,
+              ref: 'heads/' + branch
+            });
+            core.info('Deleted temporary build branch: ' + branch);
+
   report-failure:
     if: >-
       always() &&
