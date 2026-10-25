@@ -468,6 +468,7 @@ HTML_CONTENT = """
 
                 <!-- Tab 4: About & Update Details -->
                 <div id="tab-about" class="tab-pane absolute inset-0 w-full overflow-y-auto overscroll-contain space-y-3 pt-1 pr-1 opacity-0 scale-[0.985] translate-y-1 pointer-events-none hidden">
+                    <button onclick="exportDiagnosticLogs()" class="w-full bg-cyan-700 hover:bg-cyan-600 text-white text-xs font-bold px-3 py-2 rounded-xl">📄 Ekspor Log Debug</button>
                     <div class="rounded-xl border border-cyan-900/70 bg-cyan-950/20 p-4">
                         <div class="text-lg font-black tracking-wide text-cyan-300">IRA ZTE MC8501 5G LIVE SIGNAL CHARTS</div>
                         <div class="text-[11px] text-slate-400 mt-1">Versi aplikasi: <span id="about-app-version" class="text-slate-200 font-semibold">__APP_VERSION__</span></div>
@@ -1722,6 +1723,66 @@ HTML_CONTENT = """
             connEl.className = "text-[11px] font-medium bg-emerald-950/40 border border-emerald-500/30 text-emerald-400 px-3 py-1 rounded-xl shadow-inner";
         }
 
+        const diagnosticErrors = [];
+        window.addEventListener('error', event => {
+            diagnosticErrors.push({ time: new Date().toISOString(), type: 'error', message: event.message || 'Unknown JS error', source: event.filename || '', line: event.lineno || 0 });
+            if (diagnosticErrors.length > 200) diagnosticErrors.shift();
+        });
+        window.addEventListener('unhandledrejection', event => {
+            diagnosticErrors.push({ time: new Date().toISOString(), type: 'unhandledrejection', message: String(event.reason || 'Unknown rejection') });
+            if (diagnosticErrors.length > 200) diagnosticErrors.shift();
+        });
+        async function exportDiagnosticLogs() {
+            const report = {
+                app: 'IRA ZTE MC8501 5G Live Signal Charts',
+                version: typeof APP_VERSION_JS !== 'undefined' ? APP_VERSION_JS : 'unknown',
+                exported_at: new Date().toISOString(),
+                platform: navigator.userAgent,
+                page_url: location.href,
+                status: {
+                    connection: document.getElementById('status-conn')?.innerText || 'unknown',
+                    tower: document.getElementById('tower-status-val')?.innerText || 'unknown',
+                    internet: document.getElementById('internet-status-val')?.innerText || 'unknown'
+                },
+                telemetry: {
+                    signalbar: document.getElementById('info-signalbar')?.innerText || 'unknown',
+                    network_type: document.getElementById('info-nettype')?.innerText || 'unknown',
+                    pci: document.getElementById('info-pci')?.innerText || 'unknown',
+                    cell_id: document.getElementById('info-cellid')?.innerText || 'unknown'
+                },
+                connection_history: Array.isArray(connectionHistory) ? connectionHistory.slice(0, 300) : [],
+                javascript_errors: diagnosticErrors.slice(-200),
+                settings: {
+                    router_poll_interval_ms: localStorage.getItem('router_freq') || 'default',
+                    ping_interval_ms: localStorage.getItem('router_ping_freq') || 'auto',
+                    theme: localStorage.getItem('router_theme') || 'default'
+                },
+                note: 'Diagnostic export excludes passwords, cookies, tokens, and router credentials.'
+            };
+            const json = JSON.stringify(report, null, 2);
+            try {
+                if (window.pywebview?.api?.export_diagnostic_logs) {
+                    const result = await window.pywebview.api.export_diagnostic_logs(json);
+                    if (result?.success) showConnectionNotice('info', 'Log debug berhasil disimpan.');
+                    else if (result?.error) showConnectionNotice('issue', 'Gagal ekspor log: ' + result.error, 8000);
+                    return;
+                }
+                if (window.AndroidBridge?.exportDiagnosticLogs) {
+                    window.AndroidBridge.exportDiagnosticLogs(json);
+                    return;
+                }
+                const blob = new Blob([json], {type: 'application/json;charset=utf-8'});
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = 'ira-zte-diagnostic-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json';
+                link.click();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+            } catch (error) {
+                showConnectionNotice('issue', 'Gagal ekspor log: ' + String(error), 8000);
+            }
+        }
+
         async function fetchTelemetry() {
             try {
                 if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.get_router_data !== 'function') {
@@ -1748,6 +1809,7 @@ HTML_CONTENT = """
 </body>
 </html>
 """
+
 HTML_CONTENT = HTML_CONTENT.replace("__APP_VERSION__", APP_VERSION)
 
 class Api:
@@ -1765,6 +1827,37 @@ class Api:
     def _set_update_progress(self, **values):
         with self._update_progress_lock:
             self._update_progress.update(values)
+
+    def export_diagnostic_logs(self, payload):
+        """Save a user-requested, sanitized diagnostic report to a chosen JSON file."""
+        import json
+        import tkinter as tk
+        from tkinter import filedialog
+
+        try:
+            report = json.loads(payload)
+            root = tk.Tk()
+            root.withdraw()
+            try:
+                root.attributes("-topmost", True)
+            except Exception:
+                pass
+            path = filedialog.asksaveasfilename(
+                parent=root,
+                title="Ekspor Log Debug IRA ZTE",
+                defaultextension=".json",
+                initialfile=f"ira-zte-diagnostic-{time.strftime('%Y%m%d-%H%M%S')}.json",
+                filetypes=[("JSON diagnostic log", "*.json"), ("Semua file", "*.*")]
+            )
+            root.destroy()
+            if not path:
+                return {"success": False, "cancelled": True}
+            with open(path, "w", encoding="utf-8") as output:
+                json.dump(report, output, ensure_ascii=False, indent=2)
+            return {"success": True, "path": path}
+        except Exception as e:
+            print(f"[ERROR EXPORT LOG] {type(e).__name__}: {e}")
+            return {"success": False, "error": f"{type(e).__name__}: {e}"}
 
     def get_router_data(self):
         data = {}
