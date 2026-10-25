@@ -39,6 +39,11 @@ jobs:
           token: ${{ steps.get_bug_bot_token.outputs.token }}
           ref: ${{ inputs.source_ref || github.ref }}
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
@@ -60,6 +65,12 @@ jobs:
             version="manual-$RUN_NUMBER"
           fi
           echo "value=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install icon generation dependency
+        run: python -m pip install --upgrade pillow
+
+      - name: Generate Android launcher icons from source artwork
+        run: python scripts/generate_app_icons.py --platform android
 
       - name: Build debug APK
         working-directory: android

@@ -3,6 +3,7 @@
     <application
         android:allowBackup="false"
         android:label="IRA ZTE Live Signal Charts"
+        android:icon="@mipmap/ic_launcher"
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:usesCleartextTraffic="true"
         android:supportsRtl="true">

@@ -56,13 +56,16 @@ jobs:
       - name: Install build dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pyinstaller pywebview requests urllib3
+          python -m pip install pyinstaller pywebview requests urllib3 pillow
+      - name: Generate embedded Windows icon from source artwork
+        run: python scripts/generate_app_icons.py --platform windows
       - name: Check Python syntax
-        run: python -m py_compile router_app.py
+        run: python -m py_compile router_app.py scripts/generate_app_icons.py
       - name: Build EXE
         run: >-
           python -m PyInstaller --clean --noconfirm --onefile --windowed
           --collect-all webview
+          --icon build-assets/icons/IRA_ZTE_Live_Signal_Charts.ico
           --name IRA_ZTE_Live_Signal_Charts
           router_app.py
       - name: Rename executable
