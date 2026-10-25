@@ -157,8 +157,8 @@ jobs:
 
             await stampFile('android/app/build.gradle', source => {
               const updated = source.replace(
-                /versionName\s+['"][^'"]*['"]/,
-                "versionName '" + tag + "'"
+                /^\s*versionName\s+.*$/m,
+                '        versionName "' + tag + '"'
               );
               if (updated === source) throw new Error('versionName assignment not found in android/app/build.gradle');
               return updated;
