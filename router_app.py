@@ -26,6 +26,21 @@ HTML_CONTENT = """
     <!-- Chart.js CDN -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
+        /* Subtle dropdown interaction; native option menus remain OS-rendered. */
+        select { transform-origin: top center; transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease, background-color 180ms ease; }
+        select:focus { transform: translateY(-1px); box-shadow: 0 0 0 2px rgb(34 211 238 / 12%); }
+        select option { background: #020617; color: #e2e8f0; }
+        .bell-arrival { animation: bell-arrival 700ms cubic-bezier(.2,.8,.2,1); }
+        @keyframes bell-arrival {
+            0% { transform: rotate(0) scale(1); filter: drop-shadow(0 0 0 rgb(248 113 113 / 0)); }
+            18% { transform: rotate(-18deg) scale(1.12); }
+            36% { transform: rotate(16deg) scale(1.16); filter: drop-shadow(0 0 8px rgb(248 113 113 / 75%)); }
+            54% { transform: rotate(-10deg) scale(1.08); }
+            72% { transform: rotate(7deg) scale(1.03); }
+            100% { transform: rotate(0) scale(1); filter: drop-shadow(0 0 0 rgb(248 113 113 / 0)); }
+        }
+        @media (prefers-reduced-motion: reduce) { select { transition: none; } .bell-arrival { animation: none !important; } }
+
         .modal-transition {
             transition: opacity 0.25s ease-in-out, transform 0.25s ease-in-out;
         }
@@ -1062,7 +1077,7 @@ HTML_CONTENT = """
                 if (availableUpdate) {
                     const versionText = `${result.name || result.tag_name} (${channel === 'beta' ? 'Beta' : 'Stable'})`;
                     setUpdateStatus(`Update tersedia: ${versionText}. Klik Unduh & Pasang untuk menerapkan.`);
-                    document.getElementById('about-update-details').innerText = `Tersedia ${versionText}. ${result.published_at ? 'Dipublikasikan: ' + result.published_at : ''}`;
+                    document.getElementById('about-update-details').innerText = `Tersedia ${versionText}. ${result.published_at ? 'Dipublikasikan: ' + new Date(result.published_at).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', dateStyle: 'medium', timeStyle: 'short' }) + ' WIB' : ''}`;
                     installBtn.disabled = false;
                     if (silent && document.getElementById('setting-auto-update-check').checked && !updateInstallInProgress) {
                         setUpdateStatus(`Update ${versionText} ditemukan. Memasang otomatis…`);
