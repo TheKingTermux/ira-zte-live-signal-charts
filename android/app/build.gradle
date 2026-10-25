@@ -7,12 +7,31 @@ android {
     namespace 'com.thekingtermux.iraztelivesignalcharts'
     compileSdk 35
 
+    signingConfigs {
+        release {
+            def keystorePath = System.getenv('ANDROID_KEYSTORE_PATH')
+            if (keystorePath) {
+                storeFile file(keystorePath)
+                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('ANDROID_KEY_PASSWORD')
+            }
+        }
+    }
+
     defaultConfig {
         applicationId 'com.thekingtermux.iraztelivesignalcharts'
         minSdk 23
         targetSdk 28
-        versionCode 1
-        versionName '1.0'
+        versionCode (project.findProperty('androidVersionCode') ?: '1').toString().toInteger()
+        versionName (project.findProperty('androidVersionName') ?: '1.0').toString()
+    }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled false
+        }
     }
 
     compileOptions {

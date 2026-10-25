@@ -9,6 +9,21 @@
     <!-- Chart.js CDN -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
+        /* Subtle dropdown interaction; native option menus remain OS-rendered. */
+        select { transform-origin: top center; transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease, background-color 180ms ease; }
+        select:focus { transform: translateY(-1px); box-shadow: 0 0 0 2px rgb(34 211 238 / 12%); }
+        select option { background: #020617; color: #e2e8f0; }
+        .bell-arrival { animation: bell-arrival 700ms cubic-bezier(.2,.8,.2,1); }
+        @keyframes bell-arrival {
+            0% { transform: rotate(0) scale(1); filter: drop-shadow(0 0 0 rgb(248 113 113 / 0)); }
+            18% { transform: rotate(-18deg) scale(1.12); }
+            36% { transform: rotate(16deg) scale(1.16); filter: drop-shadow(0 0 8px rgb(248 113 113 / 75%)); }
+            54% { transform: rotate(-10deg) scale(1.08); }
+            72% { transform: rotate(7deg) scale(1.03); }
+            100% { transform: rotate(0) scale(1); filter: drop-shadow(0 0 0 rgb(248 113 113 / 0)); }
+        }
+        @media (prefers-reduced-motion: reduce) { select { transition: none; } .bell-arrival { animation: none !important; } }
+
         .modal-transition {
             transition: opacity 0.25s ease, transform 0.25s ease;
         }
@@ -61,8 +76,6 @@
             <button onclick="animateButton(this); toggleSettingsModal()" class="bg-slate-900 border border-slate-800 hover:border-cyan-500 p-2 rounded-xl text-cyan-400 transition-transform duration-150 active:scale-75 flex items-center justify-center shadow-inner" title="Pengaturan Aplikasi">
                 ⚙️
             </button>
-            <button onclick="togglePingModal()" class="bg-slate-900 border border-slate-800 hover:border-cyan-500 p-2 rounded-xl text-cyan-400 text-xs font-bold transition-transform active:scale-95" title="Ping Tools">PING</button>
-            <button onclick="toggleAboutModal()" class="bg-slate-900 border border-slate-800 hover:border-cyan-500 p-2 rounded-xl text-cyan-400 text-xs font-bold transition-transform active:scale-95" title="About">ⓘ</button>
             <!-- Bell History Button -->
             <button onclick="animateButton(this); toggleHistoryModal()" class="relative bg-slate-900 border border-slate-800 hover:border-cyan-500 p-2 rounded-xl text-cyan-400 transition-transform duration-150 active:scale-75 flex items-center justify-center shadow-inner" title="Riwayat Koneksi Tower">
                 🔔
@@ -291,6 +304,11 @@
                 </div>
             </div>
 
+            <div class="grid grid-cols-2 gap-2">
+                <button onclick="togglePingModal()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-cyan-300 text-xs font-semibold px-3 py-2 rounded-xl transition-all">🛠️ Ping Tools</button>
+                <button onclick="toggleAboutModal()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-cyan-300 text-xs font-semibold px-3 py-2 rounded-xl transition-all">ⓘ About</button>
+            </div>
+
             <div>
                 <label class="text-[11px] font-semibold text-slate-300 block mb-1">Tema Tampilan</label>
                 <select id="setting-theme" onchange="changeTheme(this.value)" class="w-full bg-slate-950 border border-slate-800 text-xs text-slate-200 p-2 rounded-xl focus:outline-none focus:border-cyan-500">
@@ -415,14 +433,10 @@
         let pingBusy = false;
 
 
+        let pingToolSamples = [];
+
         function clearPingToolHistory() {
-            pingSamples = [];
-            pingTimes = [];
-            if (pingChart) {
-                pingChart.data.labels = [];
-                pingChart.data.datasets[0].data = [];
-                pingChart.update('none');
-            }
+            pingToolSamples = [];
             const output = document.getElementById('ping-output');
             if (output) {
                 output.textContent = 'Riwayat ping dibersihkan.';
@@ -459,20 +473,26 @@
             document.getElementById('apk-update-status').textContent = 'Memeriksa kanal ' + channel + '...';
             AndroidBridge.checkForApkUpdate(channel);
         }
-        function recordPing(value, host) {
+        function recordPing(value, host, source = 'tools') {
             const now = new Date();
-            pingSamples.push(value);
-            pingTimes.push(now.toLocaleTimeString());
-            if (pingSamples.length > 30) { pingSamples.shift(); pingTimes.shift(); }
-            if (pingChart) {
-                pingChart.data.labels = pingTimes.slice();
-                pingChart.data.datasets[0].data = pingSamples.slice();
-                applyDynamicYAxis(pingChart);
-                pingChart.update('none');
+            if (source === 'dashboard') {
+                pingSamples.push(value);
+                pingTimes.push(now.toLocaleTimeString());
+                if (pingSamples.length > 30) { pingSamples.shift(); pingTimes.shift(); }
+                if (pingChart) {
+                    pingChart.data.labels = pingTimes.slice();
+                    pingChart.data.datasets[0].data = pingSamples.slice();
+                    applyDynamicYAxis(pingChart);
+                    pingChart.update('none');
+                }
+                document.getElementById('ping-live-value').textContent = value === null ? 'Timeout' : value + ' ms';
+                return;
             }
-            document.getElementById('ping-live-value').textContent = value === null ? 'Timeout' : value + ' ms';
+
+            pingToolSamples.push(value);
+            if (pingToolSamples.length > 30) pingToolSamples.shift();
             document.getElementById('ping-output').textContent = '[' + now.toLocaleTimeString() + '] ' + host + ': ' + (value === null ? 'timeout / tidak terjangkau' : value + ' ms') + '\n' + document.getElementById('ping-output').textContent;
-            const good = pingSamples.filter(v => v !== null);
+            const good = pingToolSamples.filter(v => v !== null);
             if (good.length) {
                 document.getElementById('ping-min').textContent = Math.min(...good) + ' ms';
                 document.getElementById('ping-avg').textContent = (good.reduce((a,b)=>a+b,0)/good.length).toFixed(1) + ' ms';
@@ -492,7 +512,7 @@
             try {
                 const value = await Promise.resolve(AndroidBridge.pingHost(host));
                 if (!document.getElementById('pingModal').classList.contains('pointer-events-none')) {
-                    recordPing(value < 0 ? null : Number(value), host);
+                    recordPing(value < 0 ? null : Number(value), host, 'tools');
                 }
             } catch (e) {
                 document.getElementById('ping-output').textContent = 'Ping gagal: ' + e;
@@ -528,7 +548,6 @@
             if (modal.classList.contains('pointer-events-none')) {
                 openModal('settingsModal', 'settingsBox');
             } else {
-                clearPingToolHistory();
                 closeModal('settingsModal', 'settingsBox');
             }
         }
@@ -613,9 +632,9 @@
                 livePingBusy = true;
                 try {
                     const value = Number(await Promise.resolve(AndroidBridge.pingHost('1.1.1.1')));
-                    recordPing(value < 0 ? null : value, '1.1.1.1');
+                    recordPing(value < 0 ? null : value, '1.1.1.1', 'dashboard');
                 } catch (_) {
-                    recordPing(null, '1.1.1.1');
+                    recordPing(null, '1.1.1.1', 'dashboard');
                 } finally {
                     livePingBusy = false;
                 }
