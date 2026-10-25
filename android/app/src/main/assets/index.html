@@ -406,10 +406,31 @@
         let pingBusy = false;
 
 
+        function clearPingToolHistory() {
+            pingSamples = [];
+            pingTimes = [];
+            if (pingChart) {
+                pingChart.data.labels = [];
+                pingChart.data.datasets[0].data = [];
+                pingChart.update('none');
+            }
+            const output = document.getElementById('ping-output');
+            if (output) {
+                output.textContent = 'Riwayat ping dibersihkan.';
+                output.scrollTop = 0;
+                output.classList.remove('animate-pulse');
+            }
+            ['ping-min', 'ping-avg', 'ping-max'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = '—';
+            });
+        }
+
         function togglePingModal() {
             const modal = document.getElementById('pingModal');
             const box = document.getElementById('pingBox');
             const opening = modal.classList.contains('pointer-events-none');
+            if (!opening) clearPingToolHistory();
             modal.classList.toggle('opacity-0', !opening);
             modal.classList.toggle('pointer-events-none', !opening);
             box.classList.toggle('scale-95', !opening);
@@ -460,7 +481,9 @@
             document.getElementById('ping-output').textContent = 'Menjalankan ping ke ' + host + '...';
             try {
                 const value = await Promise.resolve(AndroidBridge.pingHost(host));
-                recordPing(value < 0 ? null : Number(value), host);
+                if (!document.getElementById('pingModal').classList.contains('pointer-events-none')) {
+                    recordPing(value < 0 ? null : Number(value), host);
+                }
             } catch (e) {
                 document.getElementById('ping-output').textContent = 'Ping gagal: ' + e;
             } finally {
@@ -495,6 +518,7 @@
             if (modal.classList.contains('pointer-events-none')) {
                 openModal('settingsModal', 'settingsBox');
             } else {
+                clearPingToolHistory();
                 closeModal('settingsModal', 'settingsBox');
             }
         }
