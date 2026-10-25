@@ -128,7 +128,7 @@ class MainActivity : Activity() {
             setRequestProperty("User-Agent", "IRA-ZTE-Live-Signal-Charts-Android")
         }
         try {
-            if (conn.responseCode !in 200..299) error("GitHub API HTTP \${conn.responseCode}")
+            if (conn.responseCode !in 200..299) error("GitHub API HTTP ${conn.responseCode}")
             val body = conn.inputStream.bufferedReader().use { it.readText() }
             val releases = if (normalizedChannel == "stable") listOf(JSONObject(body)) else {
                 val array = JSONArray(body)
@@ -148,7 +148,7 @@ class MainActivity : Activity() {
                     }
                 }
             }
-            error("Tidak ditemukan aset .apk valid untuk kanal \${normalizedChannel.uppercase()}.")
+            error("Tidak ditemukan aset .apk valid untuk kanal ${normalizedChannel.uppercase()}.")
         } finally { conn.disconnect() }
     }
     private fun nums(v: String): List<Int> = Regex("\\d+").findAll(v).mapNotNull { it.value.toIntOrNull() }.toList()
@@ -225,9 +225,9 @@ class MainActivity : Activity() {
                 try {
                     val release = latestApk(selectedChannel)
                     val current = installedVersion()
-                    if (newer(release.version, current)) status("Update \${selectedChannel.uppercase()} tersedia: \${release.version} (terpasang: $current).", true)
-                    else status("Aplikasi sudah terbaru untuk kanal \${selectedChannel.uppercase()} ($current). Release: \${release.version}.")
-                } catch (e: Exception) { status("Gagal memeriksa update: \${e.localizedMessage ?: "kesalahan jaringan"}") }
+                    if (newer(release.version, current)) status("Update ${selectedChannel.uppercase()} tersedia: ${release.version} (terpasang: $current).", true)
+                    else status("Aplikasi sudah terbaru untuk kanal ${selectedChannel.uppercase()} ($current). Release: ${release.version}.")
+                } catch (e: Exception) { status("Gagal memeriksa update: ${e.localizedMessage ?: "kesalahan jaringan"}") }
             }.start()
         }
 
@@ -237,9 +237,9 @@ class MainActivity : Activity() {
             Thread {
                 try {
                     val release = latestApk(selectedChannel)
-                    if (!newer(release.version, installedVersion())) { status("Tidak ada APK \${selectedChannel.uppercase()} yang lebih baru."); return@Thread }
+                    if (!newer(release.version, installedVersion())) { status("Tidak ada APK ${selectedChannel.uppercase()} yang lebih baru."); return@Thread }
                     installApk(release)
-                } catch (e: Exception) { status("Gagal mengunduh APK: \${e.localizedMessage ?: "kesalahan jaringan"}") }
+                } catch (e: Exception) { status("Gagal mengunduh APK: ${e.localizedMessage ?: "kesalahan jaringan"}") }
             }.start()
         }
 
