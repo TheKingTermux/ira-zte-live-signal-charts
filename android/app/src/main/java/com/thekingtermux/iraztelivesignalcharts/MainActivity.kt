@@ -45,12 +45,29 @@ class MainActivity : Activity() {
                       section.innerHTML = '<div class="text-xs font-bold text-cyan-400">Pembaruan APK Android</div>' +
                         '<button id="apk-check-btn" class="w-full bg-slate-800 text-white text-xs px-3 py-2 rounded-xl">Periksa Pembaruan APK</button>' +
                         '<div id="apk-update-status" class="text-[10px] text-slate-400"></div>' +
+                        '<div class="pt-2 border-t border-slate-800"><div class="text-xs font-bold text-cyan-400 mb-2">Diagnostik & Log</div>' +
+                        '<button id="android-export-logs-btn" class="w-full bg-cyan-700 text-white text-xs px-3 py-2 rounded-xl">Ekspor Log Debug</button>' +
+                        '<p class="text-[10px] text-slate-500 mt-1">Menyimpan status aplikasi, info jaringan, dan riwayat koneksi tanpa kata sandi.</p></div>' +
                         '<div id="apk-progress-panel" class="hidden space-y-1.5 rounded-lg border border-slate-800 bg-slate-950/70 p-2">' +
                           '<div class="flex justify-between gap-2 text-[10px]"><span id="apk-progress-label">Menyiapkan unduhan…</span><span id="apk-progress-percent">0%</span></div>' +
                           '<div class="h-2 overflow-hidden rounded-full bg-slate-800"><div id="apk-progress-bar" class="h-full w-0 rounded-full bg-cyan-500"></div></div>' +
                           '<div id="apk-progress-details" class="text-[10px] text-slate-400">Menghitung kecepatan dan sisa waktu…</div></div>';
                       const closeRow = box.querySelector('.pt-2.flex.justify-end');
                       if (closeRow) box.insertBefore(section, closeRow); else box.appendChild(section);
+                      document.getElementById('android-export-logs-btn').onclick = function() {
+                        const text = id => document.getElementById(id)?.innerText || 'unknown';
+                        const report = {
+                          app: 'IRA ZTE MC8501 5G Live Signal Charts',
+                          version: AndroidBridge.getAppVersion(),
+                          exported_at: new Date().toISOString(),
+                          platform: navigator.userAgent,
+                          status: { connection: text('status-conn'), tower: text('tower-status-val'), internet: text('internet-status-val') },
+                          telemetry: { signalbar: text('info-signalbar'), network_type: text('info-nettype'), pci: text('info-pci'), cell_id: text('info-cellid') },
+                          connection_history: Array.isArray(window.connectionHistory) ? window.connectionHistory.slice(0, 300) : [],
+                          note: 'Diagnostic export excludes passwords, cookies, tokens, and router credentials.'
+                        };
+                        AndroidBridge.exportDiagnosticLogs(JSON.stringify(report, null, 2));
+                      };
                       document.getElementById('apk-check-btn').onclick = function() {
                         document.getElementById('apk-update-status').textContent = 'Memeriksa GitHub Releases...';
                         AndroidBridge.checkForApkUpdate();
