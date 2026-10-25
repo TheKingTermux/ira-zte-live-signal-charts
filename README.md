@@ -1,6 +1,9 @@
 # IRA ZTE MC8501 5G Live Signal Charts
 
 Aplikasi desktop untuk memantau telemetri sinyal 5G dari router **ZTE MC8501** secara langsung. Antarmuka dibuat menggunakan Python dengan dashboard HTML/JavaScript tertanam, termasuk grafik langsung untuk berbagai metrik sinyal radio.
+<p align="center">
+  <a href="#instalasi"><img src="https://img.shields.io/badge/Unduh-1976D2?style=for-the-badge&logo=github&logoColor=white" alt="Unduh"></a>
+</p>
 
 > [!IMPORTANT]
 > **PENAFIAN, STATUS INDEPENDEN, DAN BATASAN PENGGUNAAN**
@@ -57,9 +60,9 @@ Paket Python yang digunakan:
 Pilih kanal rilis sesuai kebutuhan. **Stable** direkomendasikan untuk penggunaan sehari-hari, sedangkan **Beta** berisi versi pengujian yang mungkin masih memiliki bug.
 
 <p align="center">
-  <a href="https://github.com/TheKingTermux/ira-zte-live-signal-charts/releases/latest"><img src="https://img.shields.io/badge/Unduh-Stable%20Rilis-1976D2?style=for-the-badge&logo=github&logoColor=white" alt="Unduh Rilis Stable"></a>
+  <a href="https://github.com/TheKingTermux/ira-zte-live-signal-charts/releases/latest"><img src="https://img.shields.io/badge/Unduh-Rilis%20Stable-1976D2?style=for-the-badge&logo=github&logoColor=white" alt="Unduh Rilis Stable"></a>
   &nbsp;
-  <a href="https://github.com/TheKingTermux/ira-zte-live-signal-charts/releases"><img src="https://img.shields.io/badge/Unduh-Beta%20Rilis-8E44AD?style=for-the-badge&logo=github&logoColor=white" alt="Unduh Rilis Beta"></a>
+  <a href="https://github.com/TheKingTermux/ira-zte-live-signal-charts/releases"><img src="https://img.shields.io/badge/Unduh-Rilis%20Beta-8E44AD?style=for-the-badge&logo=github&logoColor=white" alt="Unduh Rilis Beta"></a>
 </p>
 
 - **[Rilis Stable — versi stabil terbaru](https://github.com/TheKingTermux/ira-zte-live-signal-charts/releases/latest):** pilih ini jika mengutamakan versi yang ditandai sebagai rilis stabil.
