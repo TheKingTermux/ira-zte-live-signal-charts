@@ -284,6 +284,11 @@
                 <p class="text-[10px] text-slate-500">Stable memakai release resmi; Beta mengizinkan prerelease. Hanya aset .apk yang akan dipilih.</p>
                 <button id="apk-check-btn" onclick="checkApkUpdate()" class="w-full bg-slate-800 text-white text-xs px-3 py-2 rounded-xl">Periksa Pembaruan APK</button>
                 <div id="apk-update-status" class="text-[10px] text-slate-400"></div>
+                <div id="apk-progress-panel" class="hidden space-y-1.5 rounded-lg border border-slate-800 bg-slate-950/70 p-2">
+                    <div class="flex justify-between gap-2 text-[10px]"><span id="apk-progress-label">Menyiapkan unduhan…</span><span id="apk-progress-percent">0%</span></div>
+                    <div class="h-2 overflow-hidden rounded-full bg-slate-800"><div id="apk-progress-bar" class="h-full w-0 rounded-full bg-cyan-500"></div></div>
+                    <div id="apk-progress-details" class="text-[10px] text-slate-400">Menghitung kecepatan dan sisa waktu…</div>
+                </div>
             </div>
 
             <div>
