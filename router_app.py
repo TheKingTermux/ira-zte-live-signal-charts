@@ -1828,7 +1828,7 @@ class Api:
                 current_script = Path(__file__).resolve()
                 decoded_source = payload.decode("utf-8-sig")
                 decoded_source, replacements = re.subn(
-                    r'^APP_VERSION\\s*=\\s*["\\'][^"\\']*["\\']',
+                    r'^APP_VERSION\s*=\s*["\'][^"\']*["\']',
                     f'APP_VERSION = "{tag_name}"',
                     decoded_source, count=1, flags=re.MULTILINE,
                 )
