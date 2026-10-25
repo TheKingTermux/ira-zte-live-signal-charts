@@ -3,6 +3,7 @@ package com.thekingtermux.iraztelivesignalcharts
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
+import android.content.ClipData
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -15,6 +16,7 @@ import androidx.core.content.FileProvider
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -240,6 +242,29 @@ class MainActivity : Activity() {
                     if (!newer(release.version, installedVersion())) { status("Tidak ada APK ${selectedChannel.uppercase()} yang lebih baru."); return@Thread }
                     installApk(release)
                 } catch (e: Exception) { status("Gagal mengunduh APK: ${e.localizedMessage ?: "kesalahan jaringan"}") }
+            }.start()
+        }
+
+        @JavascriptInterface
+        fun exportDiagnosticLogs(json: String?) {
+            Thread {
+                try {
+                    val report = json?.takeIf { it.isNotBlank() } ?: error("Log kosong.")
+                    val file = File(cacheDir, "ira-zte-diagnostic-${System.currentTimeMillis()}.json")
+                    file.writeText(report, Charsets.UTF_8)
+                    val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.fileprovider", file)
+                    val share = Intent(Intent.ACTION_SEND).apply {
+                        type = "application/json"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        putExtra(Intent.EXTRA_SUBJECT, "IRA ZTE diagnostic log")
+                        putExtra(Intent.EXTRA_TEXT, "Log diagnostik IRA ZTE. Periksa isi file sebelum membagikannya.")
+                        clipData = ClipData.newUri(contentResolver, file.name, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    runOnUiThread { startActivity(Intent.createChooser(share, "Simpan atau bagikan log debug")) }
+                } catch (e: Exception) {
+                    status("Gagal ekspor log: ${e.localizedMessage ?: e.javaClass.simpleName}")
+                }
             }.start()
         }
 
