@@ -467,7 +467,7 @@
             if (pingChart) {
                 pingChart.data.labels = pingTimes.slice();
                 pingChart.data.datasets[0].data = pingSamples.slice();
-                applyDynamicYAxis(pingChart);
+                safeApplyDynamicYAxis(pingChart);
                 pingChart.update('none');
             }
             document.getElementById('ping-live-value').textContent = value === null ? 'Timeout' : value + ' ms';
@@ -670,6 +670,11 @@
             unreadCount = 0;
             document.getElementById('bell-badge').classList.add('hidden');
             renderHistoryList();
+        }
+
+        function safeApplyDynamicYAxis(chart) {
+            try { applyDynamicYAxis(chart); }
+            catch (error) { console.error("Gagal mengatur skala grafik:", error); }
         }
 
         function applyDynamicYAxis(chart) {
@@ -918,7 +923,11 @@
 
         async function fetchTelemetry() {
             try {
-                let res = await JSON.parse(window.AndroidBridge.getRouterData());
+                if (!window.AndroidBridge || typeof window.AndroidBridge.getRouterData !== 'function') {
+                    throw new Error('AndroidBridge.getRouterData belum tersedia');
+                }
+                const rawTelemetry = window.AndroidBridge.getRouterData();
+                let res = typeof rawTelemetry === 'string' ? JSON.parse(rawTelemetry) : rawTelemetry;
                 if (res && Object.keys(res).length > 0) {
                     updateUI(res);
                 }
