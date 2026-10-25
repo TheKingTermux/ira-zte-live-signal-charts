@@ -173,7 +173,7 @@ class MainActivity : Activity() {
         try {
             if (conn.responseCode !in 200..299) error("Unduhan gagal: HTTP ${conn.responseCode}")
             val apk = File(cacheDir, "ira-zte-update.apk")
-            val total = conn.contentLengthLong.coerceAtLeast(0L)
+            val total = (conn.getHeaderField("Content-Length")?.toLongOrNull() ?: -1L).coerceAtLeast(0L)
             val startedAt = System.nanoTime()
             var downloaded = 0L
             var lastUpdateAt = startedAt
