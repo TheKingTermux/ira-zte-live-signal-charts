@@ -467,8 +467,8 @@ HTML_CONTENT = """
                 </div>
 
                 <!-- Tab 4: About & Update Details -->
-                 <button onclick="exportDiagnosticLogs()" class="w-full bg-cyan-700 hover:bg-cyan-600 text-white text-xs font-bold px-3 py-2 rounded-xl">📄 Ekspor Log Debug</button>
                 <div id="tab-about" class="tab-pane absolute inset-0 w-full overflow-y-auto overscroll-contain space-y-3 pt-1 pr-1 opacity-0 scale-[0.985] translate-y-1 pointer-events-none hidden">
+                    <button onclick="exportDiagnosticLogs()" class="w-full bg-cyan-700 hover:bg-cyan-600 text-white text-xs font-bold px-3 py-2 rounded-xl">📄 Ekspor Log Debug</button>
                     <div class="rounded-xl border border-cyan-900/70 bg-cyan-950/20 p-4">
                         <div class="text-lg font-black tracking-wide text-cyan-300">IRA ZTE MC8501 5G LIVE SIGNAL CHARTS</div>
                         <div class="text-[11px] text-slate-400 mt-1">Versi aplikasi: <span id="about-app-version" class="text-slate-200 font-semibold">__APP_VERSION__</span></div>
