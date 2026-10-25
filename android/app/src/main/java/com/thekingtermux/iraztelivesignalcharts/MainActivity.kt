@@ -17,7 +17,6 @@ import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
-import java.util.concurrent.TimeUnit
 
 class MainActivity : Activity() {
     private lateinit var webView: WebView
@@ -208,9 +207,8 @@ class MainActivity : Activity() {
                 val process = ProcessBuilder("ping", "-c", "1", "-W", "2", target)
                     .redirectErrorStream(true).start()
                 val output = process.inputStream.bufferedReader().use { it.readText() }
-                val completed = process.waitFor(3, TimeUnit.SECONDS)
-                if (!completed) { process.destroyForcibly(); -1 }
-                else if (process.exitValue() != 0) -1
+                val exitCode = process.waitFor()
+                if (exitCode != 0) -1
                 else Regex("time[=<]([0-9.]+)").find(output)?.groupValues?.get(1)?.toDoubleOrNull()?.toInt() ?: 0
             } catch (_: Exception) { -1 }
         }
