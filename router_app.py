@@ -1713,6 +1713,52 @@ class Api:
         candidates.sort(key=lambda r: str(r.get("published_at") or r.get("created_at") or ""), reverse=True)
         return candidates[0]
 
+    @staticmethod
+    def _running_app_kind():
+        """Return the release asset type for this installed desktop app."""
+        return "exe" if getattr(sys, "frozen", False) else "python"
+
+    @staticmethod
+    def _release_asset_for_kind(assets, kind):
+        """Select only the exact asset type supported by the current app."""
+        if not isinstance(assets, list):
+            return None
+
+        def name_of(asset):
+            return str(asset.get("name") or "").strip()
+
+        if kind == "exe":
+            # The EXE workflow publishes versioned names such as
+            # IRA_ZTE_Live_Signal_Charts-1.2.3.exe.
+            matches = [
+                asset for asset in assets
+                if isinstance(asset, dict)
+                and name_of(asset).lower().endswith(".exe")
+                and "ira_zte_live_signal_charts" in name_of(asset).lower()
+            ]
+        elif kind == "python":
+            allowed = {
+                "router_app.py",
+                "ira_zte_speed_test_stable.py",
+                "ira-zte-live-signal-charts.py",
+                "app.py",
+            }
+            matches = [
+                asset for asset in assets
+                if isinstance(asset, dict) and name_of(asset).lower() in allowed
+            ]
+        elif kind == "apk":
+            matches = [
+                asset for asset in assets
+                if isinstance(asset, dict)
+                and name_of(asset).lower().endswith(".apk")
+                and "ira_zte_live_signal_charts" in name_of(asset).lower()
+            ]
+        else:
+            return None
+
+        return matches[0] if matches else None
+
     def check_for_updates(self, channel="stable"):
         try:
             release = self._get_release(channel)
@@ -1722,14 +1768,14 @@ class Api:
             tag = str(release.get("tag_name") or "").strip()
             if not tag:
                 return {"update_available": False, "error": "Release ditemukan tetapi tidak memiliki tag versi."}
-            assets = release.get("assets") or []
-            script_asset = next((a for a in assets if str(a.get("name", "")).lower() in {
-                "router_app.py", "ira_zte_speed_test_stable.py", "ira-zte-live-signal-charts.py", "app.py"
-            }), None)
+
+            app_kind = self._running_app_kind()
+            asset = self._release_asset_for_kind(release.get("assets") or [], app_kind)
             current_key = self._release_version_key(APP_VERSION)
             remote_key = self._release_version_key(tag)
             is_newer = remote_key > current_key or (remote_key == current_key and tag.lower() != APP_VERSION.lower())
-            can_install = bool(is_newer and script_asset)
+            can_install = bool(is_newer and asset and asset.get("browser_download_url"))
+            kind_label = {"exe": "EXE", "python": "Python", "apk": "APK"}[app_kind]
             return {
                 "update_available": can_install,
                 "current_version": APP_VERSION,
@@ -1739,9 +1785,15 @@ class Api:
                 "published_at": release.get("published_at"),
                 "html_url": release.get("html_url"),
                 "channel": "beta" if release.get("prerelease") else "stable",
-                "asset_name": script_asset.get("name") if script_asset else None,
-                "asset_url": script_asset.get("browser_download_url") if script_asset else None,
-                "message": ("Update tersedia, tetapi release belum menyertakan file Python aplikasi yang didukung. Tambahkan router_app.py sebagai release asset." if is_newer and not script_asset else "Aplikasi sudah menggunakan versi terbaru untuk kanal ini.") if not is_newer or not script_asset else "Update tersedia.",
+                "app_kind": app_kind,
+                "asset_name": asset.get("name") if asset else None,
+                "asset_url": asset.get("browser_download_url") if asset else None,
+                "message": (
+                    f"Update tersedia ({kind_label})." if can_install else
+                    f"Release terbaru tidak memiliki aset {kind_label} yang cocok; aset jenis lain tidak akan diunduh."
+                    if is_newer and not asset else
+                    "Aplikasi sudah menggunakan versi terbaru untuk kanal ini."
+                ),
             }
         except requests.exceptions.RequestException as e:
             return {"update_available": False, "error": f"Tidak dapat menghubungi GitHub: {type(e).__name__}: {e}"}
@@ -1749,52 +1801,79 @@ class Api:
             return {"update_available": False, "error": f"Gagal memeriksa release: {type(e).__name__}: {e}"}
 
     def install_update(self, tag_name, channel="stable"):
-        """Download a Python release asset, replace this script, then restart the app."""
+        """Install only the release asset matching the current desktop app type."""
         try:
             release = self._get_release(channel)
             if not release or str(release.get("tag_name")) != str(tag_name):
                 return {"success": False, "error": "Release berubah sejak pemeriksaan. Periksa update kembali."}
-            allowed_names = {"router_app.py", "ira_zte_speed_test_stable.py", "ira-zte-live-signal-charts.py", "app.py"}
-            asset = next((a for a in (release.get("assets") or []) if str(a.get("name", "")).lower() in allowed_names), None)
+
+            app_kind = self._running_app_kind()
+            asset = self._release_asset_for_kind(release.get("assets") or [], app_kind)
             if not asset or not asset.get("browser_download_url"):
-                return {"success": False, "error": "Release ini belum memiliki asset Python aplikasi. Tambahkan router_app.py ke release GitHub."}
+                kind_label = "EXE" if app_kind == "exe" else "Python"
+                return {"success": False, "error": f"Release ini tidak memiliki aset {kind_label} yang cocok; aplikasi tidak diubah."}
 
-            current_script = Path(__file__).resolve()
-            download_url = asset["browser_download_url"]
-            response = requests.get(download_url, headers={"User-Agent": "IRA-ZTE-Live-Signal-Charts"}, timeout=(5, 30))
+            response = requests.get(
+                asset["browser_download_url"],
+                headers={"User-Agent": "IRA-ZTE-Live-Signal-Charts"},
+                timeout=(5, 60),
+            )
             response.raise_for_status()
-            new_source = response.content
-            if len(new_source) < 1000 or b"class Api" not in new_source or b"HTML_CONTENT" not in new_source:
-                return {"success": False, "error": "File release tidak tampak seperti source aplikasi yang valid; file tidak diganti."}
+            payload = response.content
 
-            # Stamp the installed version so the same release is not offered repeatedly.
-            import re
-            decoded_source = new_source.decode("utf-8-sig")
-            version_assignment = f'APP_VERSION = "{tag_name}"'
-            decoded_source, replacements = re.subn(
-                r'^APP_VERSION\s*=\s*["\'][^"\']*["\']',
-                version_assignment,
-                decoded_source,
-                count=1,
-                flags=re.MULTILINE,
-            )
-            decoded_source, js_replacements = re.subn(
-                r"^\s*const APP_VERSION_JS = ['\"][^'\"]*['\"];",
-                f"        const APP_VERSION_JS = '{tag_name}';",
-                decoded_source,
-                count=1,
-                flags=re.MULTILINE,
-            )
-            if replacements != 1 or js_replacements != 1:
-                return {"success": False, "error": "Source release tidak memiliki penanda versi yang didukung; file tidak diganti."}
+            if app_kind == "python":
+                if len(payload) < 1000 or b"class Api" not in payload or b"HTML_CONTENT" not in payload:
+                    return {"success": False, "error": "File release tidak tampak seperti source Python aplikasi yang valid; file tidak diganti."}
+                import re
+                current_script = Path(__file__).resolve()
+                decoded_source = payload.decode("utf-8-sig")
+                decoded_source, replacements = re.subn(
+                    r'^APP_VERSION\s*=\s*["\'][^"\']*["\']',
+                    f'APP_VERSION = "{tag_name}"',
+                    decoded_source, count=1, flags=re.MULTILINE,
+                )
+                decoded_source, js_replacements = re.subn(
+                    r"^\\s*const APP_VERSION_JS = ['\\"][^'\\"]*['\\"];",
+                    f"        const APP_VERSION_JS = '{tag_name}';",
+                    decoded_source, count=1, flags=re.MULTILINE,
+                )
+                if replacements != 1 or js_replacements != 1:
+                    return {"success": False, "error": "Source release tidak memiliki penanda versi yang didukung; file tidak diganti."}
+                compile(decoded_source, str(current_script), "exec")
+                temp_path = current_script.with_suffix(current_script.suffix + ".update")
+                temp_path.write_text(decoded_source, encoding="utf-8")
+                os.replace(temp_path, current_script)
+                threading.Timer(1.2, self._restart_after_update, args=(str(current_script),)).start()
+                return {"success": True, "version": tag_name, "message": "Update Python terpasang; aplikasi akan dimulai ulang."}
 
-            # Compile downloaded source before touching the current application.
-            compile(decoded_source, str(current_script), "exec")
-            temp_path = current_script.with_suffix(current_script.suffix + ".update")
-            temp_path.write_text(decoded_source, encoding="utf-8")
-            os.replace(temp_path, current_script)
-            threading.Timer(1.2, self._restart_after_update, args=(str(current_script),)).start()
-            return {"success": True, "version": tag_name, "message": "Update terpasang; aplikasi akan dimulai ulang."}
+            # Windows cannot overwrite a running executable. Download and validate the
+            # matching EXE first, then use a short-lived batch file to replace it after exit.
+            if len(payload) < 100_000 or not payload.startswith(b"MZ"):
+                return {"success": False, "error": "File release bukan executable Windows yang valid; file tidak diganti."}
+            current_exe = Path(sys.executable).resolve()
+            if not getattr(sys, "frozen", False):
+                return {"success": False, "error": "Updater EXE hanya dapat dijalankan dari aplikasi EXE."}
+            temp_exe = current_exe.with_name(current_exe.stem + ".update.exe")
+            temp_exe.write_bytes(payload)
+            import subprocess
+            import tempfile
+            batch_path = current_exe.with_name(current_exe.stem + "_update.bat")
+            batch_path.write_text(
+                "@echo off\\r\\n"
+                "timeout /t 2 /nobreak >nul\\r\\n"
+                f'move /y "{temp_exe}" "{current_exe}" >nul\\r\\n'
+                f'if errorlevel 1 exit /b 1\\r\\n'
+                f'start "" "{current_exe}"\\r\\n'
+                f'del "%~f0"\\r\\n',
+                encoding="utf-8",
+            )
+            subprocess.Popen(
+                ["cmd.exe", "/c", str(batch_path)],
+                cwd=str(current_exe.parent),
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                close_fds=True,
+            )
+            os._exit(0)
         except Exception as e:
             return {"success": False, "error": f"Pembaruan gagal: {type(e).__name__}: {e}"}
 
