@@ -42,7 +42,11 @@ class MainActivity : Activity() {
                       section.className = 'pt-3 border-t border-slate-800 space-y-2';
                       section.innerHTML = '<div class="text-xs font-bold text-cyan-400">Pembaruan APK Android</div>' +
                         '<button id="apk-check-btn" class="w-full bg-slate-800 text-white text-xs px-3 py-2 rounded-xl">Periksa Pembaruan APK</button>' +
-                        '<div id="apk-update-status" class="text-[10px] text-slate-400"></div>';
+                        '<div id="apk-update-status" class="text-[10px] text-slate-400"></div>' +
+                        '<div id="apk-progress-panel" class="hidden space-y-1.5 rounded-lg border border-slate-800 bg-slate-950/70 p-2">' +
+                          '<div class="flex justify-between gap-2 text-[10px]"><span id="apk-progress-label">Menyiapkan unduhan…</span><span id="apk-progress-percent">0%</span></div>' +
+                          '<div class="h-2 overflow-hidden rounded-full bg-slate-800"><div id="apk-progress-bar" class="h-full w-0 rounded-full bg-cyan-500"></div></div>' +
+                          '<div id="apk-progress-details" class="text-[10px] text-slate-400">Menghitung kecepatan dan sisa waktu…</div></div>';
                       const closeRow = box.querySelector('.pt-2.flex.justify-end');
                       if (closeRow) box.insertBefore(section, closeRow); else box.appendChild(section);
                       document.getElementById('apk-check-btn').onclick = function() {
@@ -83,6 +87,26 @@ class MainActivity : Activity() {
               const old = document.getElementById('apk-install-btn');
               if (old) old.remove();
               if (section) { $addButton }
+            })();
+        """.trimIndent()
+        runOnUiThread { webView.evaluateJavascript(script, null) }
+    }
+
+    private fun progress(percent: Double, downloaded: Long, total: Long, speed: Long, eta: Long) {
+        val percentJs = if (percent < 0) "null" else percent.toString()
+        val script = """
+            (function() {
+              const panel = document.getElementById('apk-progress-panel');
+              if (!panel) return;
+              panel.classList.remove('hidden');
+              const p = $percentJs;
+              document.getElementById('apk-progress-label').textContent = 'Mengunduh APK…';
+              document.getElementById('apk-progress-percent').textContent = p === null ? '—' : Math.floor(p) + '%';
+              document.getElementById('apk-progress-bar').style.width = (p === null ? 0 : p) + '%';
+              const fmt = n => { if (!n) return '0 B'; const u = ['B','KB','MB','GB']; let i=0,v=n; while(v>=1024&&i<u.length-1){v/=1024;i++;} return (i===0?Math.round(v):v.toFixed(1))+' '+u[i]; };
+              const eta = $eta;
+              const etaText = eta < 0 ? 'menghitung…' : eta < 60 ? eta + ' dtk' : Math.floor(eta/60)+' m '+(eta%60)+' dtk';
+              document.getElementById('apk-progress-details').textContent = fmt($downloaded) + ' / ' + ($total > 0 ? fmt($total) : 'ukuran tidak diketahui') + ' · ' + fmt($speed) + '/dtk · Sisa ' + etaText;
             })();
         """.trimIndent()
         runOnUiThread { webView.evaluateJavascript(script, null) }
@@ -149,7 +173,31 @@ class MainActivity : Activity() {
         try {
             if (conn.responseCode !in 200..299) error("Unduhan gagal: HTTP ${conn.responseCode}")
             val apk = File(cacheDir, "ira-zte-update.apk")
-            conn.inputStream.use { input -> apk.outputStream().use { output -> input.copyTo(output) } }
+            val total = (conn.getHeaderField("Content-Length")?.toLongOrNull() ?: -1L).coerceAtLeast(0L)
+            val startedAt = System.nanoTime()
+            var downloaded = 0L
+            var lastUpdateAt = startedAt
+            conn.inputStream.use { input ->
+                apk.outputStream().use { output ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        output.write(buffer, 0, count)
+                        downloaded += count
+                        val now = System.nanoTime()
+                        if (now - lastUpdateAt >= 300_000_000L || (total > 0 && downloaded >= total)) {
+                            val elapsed = (now - startedAt) / 1_000_000_000.0
+                            val speed = if (elapsed > 0) downloaded / elapsed else 0.0
+                            val eta = if (total > 0 && speed > 0) ((total - downloaded) / speed).toLong() else -1L
+                            val percent = if (total > 0) (downloaded * 100.0 / total).coerceIn(0.0, 100.0) else -1.0
+                            progress(percent, downloaded, total, speed.toLong(), eta)
+                            lastUpdateAt = now
+                        }
+                    }
+                }
+            }
+            progress(100.0, downloaded, total, 0L, 0L)
             if (apk.length() < 100000L) { apk.delete(); error("File APK tidak valid atau tidak lengkap.") }
             runOnUiThread {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {

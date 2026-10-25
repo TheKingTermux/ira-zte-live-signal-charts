@@ -476,6 +476,11 @@ HTML_CONTENT = """
                             <button id="btn-install-update" onclick="installAvailableUpdate()" disabled class="flex-1 bg-cyan-700 hover:bg-cyan-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-[10px] font-semibold px-3 py-2 rounded-lg">⬇ Unduh & Pasang</button>
                         </div>
                         <p id="update-status" class="text-[10px] text-slate-400">Belum memeriksa update.</p>
+                        <div id="update-progress-panel" class="hidden space-y-1.5 rounded-lg border border-slate-800 bg-slate-950/70 p-2">
+                            <div class="flex justify-between gap-2 text-[10px]"><span id="update-progress-label">Menyiapkan unduhan…</span><span id="update-progress-percent">0%</span></div>
+                            <div class="h-2 overflow-hidden rounded-full bg-slate-800"><div id="update-progress-bar" class="h-full w-0 rounded-full bg-cyan-500 transition-[width] duration-200"></div></div>
+                            <div id="update-progress-details" class="text-[10px] text-slate-400">Menghitung ukuran, kecepatan, dan sisa waktu…</div>
+                        </div>
                         <div class="border-t border-slate-800 pt-3">
                             <div class="text-[11px] font-bold text-cyan-300 mb-1">Informasi Release</div>
                             <p id="about-update-details" class="text-[10px] text-slate-400">Belum ada informasi release.</p>
@@ -1050,18 +1055,59 @@ HTML_CONTENT = """
             }
         }
 
+        function formatBytes(bytes) {
+            if (!Number.isFinite(bytes) || bytes < 0) return '—';
+            if (bytes < 1024) return bytes + ' B';
+            const units = ['KB', 'MB', 'GB', 'TB'];
+            let value = bytes / 1024, unit = 0;
+            while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++; }
+            return value.toFixed(1) + ' ' + units[unit];
+        }
+
+        function formatEta(seconds) {
+            if (!Number.isFinite(seconds) || seconds < 0) return 'menghitung…';
+            const s = Math.ceil(seconds);
+            if (s < 60) return s + ' dtk';
+            return Math.floor(s / 60) + ' m ' + (s % 60) + ' dtk';
+        }
+
+        async function refreshUpdateProgress() {
+            try {
+                if (!window.pywebview?.api?.get_update_progress) return;
+                const p = await window.pywebview.api.get_update_progress();
+                const panel = document.getElementById('update-progress-panel');
+                panel.classList.remove('hidden');
+                const percent = Number(p.percent) || 0;
+                document.getElementById('update-progress-label').innerText = p.status || 'Mengunduh update…';
+                document.getElementById('update-progress-percent').innerText = p.total > 0 ? Math.floor(percent) + '%' : formatBytes(p.downloaded || 0);
+                document.getElementById('update-progress-bar').style.width = Math.min(100, Math.max(0, percent)) + '%';
+                const totalText = p.total > 0 ? formatBytes(p.downloaded || 0) + ' / ' + formatBytes(p.total) : formatBytes(p.downloaded || 0) + ' diunduh';
+                const speedText = formatBytes(p.speed_bps || 0) + '/dtk';
+                const etaText = p.total > 0 && p.eta_seconds != null ? formatEta(Number(p.eta_seconds)) : '—';
+                document.getElementById('update-progress-details').innerText = totalText + ' · ' + speedText + ' · Sisa ' + etaText;
+            } catch (_) {}
+        }
+
         async function installAvailableUpdate() {
             if (!availableUpdate || !window.pywebview || !window.pywebview.api || updateInstallInProgress) return;
             updateInstallInProgress = true;
             const btn = document.getElementById('btn-install-update');
             btn.disabled = true;
-            btn.innerText = 'Memasang…';
+            btn.innerText = 'Mengunduh…';
             setUpdateStatus('Mengunduh update dan menyiapkan restart…');
+            document.getElementById('update-progress-panel').classList.remove('hidden');
+            await refreshUpdateProgress();
+            const progressTimer = setInterval(refreshUpdateProgress, 500);
             try {
                 const result = await window.pywebview.api.install_update(availableUpdate.tag_name, document.getElementById('setting-update-channel').value);
+                clearInterval(progressTimer);
+                await refreshUpdateProgress();
                 if (!result || !result.success) throw new Error((result && result.error) || 'Pemasangan update gagal.');
+                document.getElementById('update-progress-bar').style.width = '100%';
+                document.getElementById('update-progress-percent').innerText = '100%';
                 setUpdateStatus('Update terpasang. Aplikasi akan dimulai ulang…');
             } catch (error) {
+                clearInterval(progressTimer);
                 setUpdateStatus('Gagal memasang update: ' + (error.message || error), true);
                 updateInstallInProgress = false;
                 btn.disabled = false;
@@ -1554,6 +1600,21 @@ HTML_CONTENT = """
 HTML_CONTENT = HTML_CONTENT.replace("__APP_VERSION__", APP_VERSION)
 
 class Api:
+    def __init__(self):
+        self._update_progress = {
+            "active": False, "percent": 0, "downloaded": 0, "total": 0,
+            "speed_bps": 0, "eta_seconds": None, "status": "Siap", "error": None,
+        }
+        self._update_progress_lock = threading.Lock()
+
+    def get_update_progress(self):
+        with self._update_progress_lock:
+            return dict(self._update_progress)
+
+    def _set_update_progress(self, **values):
+        with self._update_progress_lock:
+            self._update_progress.update(values)
+
     def get_router_data(self):
         data = {}
         internet_ok = False
@@ -1813,13 +1874,40 @@ class Api:
                 kind_label = "EXE" if app_kind == "exe" else "Python"
                 return {"success": False, "error": f"Release ini tidak memiliki aset {kind_label} yang cocok; aplikasi tidak diubah."}
 
-            response = requests.get(
-                asset["browser_download_url"],
-                headers={"User-Agent": "IRA-ZTE-Live-Signal-Charts"},
-                timeout=(5, 60),
-            )
-            response.raise_for_status()
-            payload = response.content
+            self._set_update_progress(active=True, percent=0, downloaded=0, total=0,
+                                      speed_bps=0, eta_seconds=None, status="Menghubungkan ke server…", error=None)
+            started_at = time.monotonic()
+            downloaded = 0
+            chunks = []
+            try:
+                with requests.get(
+                    asset["browser_download_url"],
+                    headers={"User-Agent": "IRA-ZTE-Live-Signal-Charts"},
+                    timeout=(5, 60), stream=True,
+                ) as response:
+                    response.raise_for_status()
+                    total = int(response.headers.get("Content-Length") or 0)
+                    self._set_update_progress(total=total, status="Mengunduh update…")
+                    for chunk in response.iter_content(chunk_size=128 * 1024):
+                        if not chunk:
+                            continue
+                        chunks.append(chunk)
+                        downloaded += len(chunk)
+                        elapsed = max(time.monotonic() - started_at, 0.001)
+                        speed = downloaded / elapsed
+                        eta = max((total - downloaded) / speed, 0) if total > 0 and speed > 0 else None
+                        percent = min(downloaded * 100 / total, 100) if total > 0 else 0
+                        self._set_update_progress(
+                            downloaded=downloaded, total=total, speed_bps=round(speed),
+                            eta_seconds=round(eta) if eta is not None else None,
+                            percent=round(percent, 1), status="Mengunduh update…",
+                        )
+                payload = b"".join(chunks)
+                self._set_update_progress(active=False, percent=100, downloaded=downloaded,
+                                          total=total, status="Unduhan selesai, memvalidasi file…")
+            except Exception:
+                self._set_update_progress(active=False, status="Unduhan gagal.")
+                raise
 
             if app_kind == "python":
                 if len(payload) < 1000 or b"class Api" not in payload or b"HTML_CONTENT" not in payload:
@@ -1875,6 +1963,7 @@ class Api:
             )
             os._exit(0)
         except Exception as e:
+            self._set_update_progress(active=False, status="Pembaruan gagal.", error=f"{type(e).__name__}: {e}")
             return {"success": False, "error": f"Pembaruan gagal: {type(e).__name__}: {e}"}
 
     @staticmethod
