@@ -350,9 +350,7 @@ HTML_CONTENT = """
                     <div>
                         <label class="text-[11px] font-semibold text-slate-300 block mb-1">Frekuensi Grafik Ping Dashboard</label>
                         <select id="setting-ping-freq" onchange="changePingFrequency(this.value)" class="w-full bg-slate-950 border border-slate-800 text-xs text-slate-200 p-2 rounded-xl focus:outline-none focus:border-cyan-500 transition-all">
-                            <option value="2000">2 detik (refresh ×2)</option>
-                            <option value="4000">4 detik (refresh ×2)</option>
-                            <option value="8000">8 detik (refresh ×2)</option>
+                            <option value="auto">Mengikuti update interval (×2)</option>
                             <option value="custom">Custom</option>
                         </select>
                         <input id="setting-ping-freq-custom" type="number" min="1" max="3600" step="1" placeholder="Interval custom (detik)" oninput="changePingFrequency('custom')" class="hidden mt-2 w-full bg-slate-950 border border-slate-800 text-xs text-slate-200 p-2 rounded-xl focus:outline-none focus:border-cyan-500 transition-all">
@@ -572,18 +570,26 @@ HTML_CONTENT = """
 
         window.addEventListener('pywebviewready', function() {
             const pingFreqSelect = document.getElementById('setting-ping-freq');
-            const savedPingFreq = Number.parseInt(localStorage.getItem('router_ping_freq') || '2000', 10);
-            pingMonitorInterval = Number.isFinite(savedPingFreq) && savedPingFreq >= 1000 && savedPingFreq <= 3600000 ? savedPingFreq : 2000;
-            if ([2000, 4000, 8000].includes(pingMonitorInterval)) {
-                pingFreqSelect.value = String(pingMonitorInterval);
+            const savedPingFreq = localStorage.getItem('router_ping_freq');
+            if (savedPingFreq === null || savedPingFreq === 'auto') {
+                pingFreqSelect.value = 'auto';
+                updatePingMonitorFrequency(false);
             } else {
-                pingFreqSelect.value = 'custom';
-                const customInput = document.getElementById('setting-ping-freq-custom');
-                customInput.classList.remove('hidden');
-                customInput.value = String(Math.round(pingMonitorInterval / 1000));
+                const savedInterval = Number.parseInt(savedPingFreq, 10);
+                if (Number.isFinite(savedInterval) && savedInterval >= 1000 && savedInterval <= 3600000) {
+                    pingFreqSelect.value = 'custom';
+                    pingMonitorInterval = savedInterval;
+                    const customInput = document.getElementById('setting-ping-freq-custom');
+                    customInput.classList.remove('hidden');
+                    customInput.value = String(Math.round(savedInterval / 1000));
+                    const pingTitle = document.getElementById('ping-chart-title');
+                    if (pingTitle) pingTitle.textContent = '📈 Ping Latency — setiap ' + (pingMonitorInterval / 1000) + ' detik';
+                } else {
+                    pingFreqSelect.value = 'auto';
+                    localStorage.setItem('router_ping_freq', 'auto');
+                    updatePingMonitorFrequency(false);
+                }
             }
-            const pingTitle = document.getElementById('ping-chart-title');
-            if (pingTitle) pingTitle.textContent = '📈 Ping Latency — setiap ' + (pingMonitorInterval / 1000) + ' detik';
             startPolling();
             startPingMonitor();
         });
@@ -1237,6 +1243,7 @@ HTML_CONTENT = """
             currentIntervalTime = parseInt(val, 10) || 1000;
             localStorage.setItem('router_freq', String(currentIntervalTime));
             if (window.pywebview && window.pywebview.api) startPolling();
+            updatePingMonitorFrequency();
         }
 
         function addHistoryLog(status, timeStr) {
@@ -1402,6 +1409,16 @@ HTML_CONTENT = """
             pingMonitorTimer = setInterval(samplePing, pingMonitorInterval);
         }
 
+        function updatePingMonitorFrequency(restart = true) {
+            const select = document.getElementById('setting-ping-freq');
+            if (select && select.value === 'auto') {
+                pingMonitorInterval = Math.min(3600000, Math.max(1000, currentIntervalTime * 2));
+                const title = document.getElementById('ping-chart-title');
+                if (title) title.textContent = '📈 Ping Latency — setiap ' + (pingMonitorInterval / 1000) + ' detik (update ×2)';
+                if (restart && window.pywebview && window.pywebview.api) startPingMonitor();
+            }
+        }
+
         function changePingFrequency(val) {
             const select = document.getElementById('setting-ping-freq');
             const customInput = document.getElementById('setting-ping-freq-custom');
@@ -1410,16 +1427,18 @@ HTML_CONTENT = """
                 customInput.classList.remove('hidden');
                 interval = Math.round(Number(customInput.value) * 1000);
                 if (!Number.isFinite(interval) || interval < 1000 || interval > 3600000) return;
-            } else {
-                customInput.classList.add('hidden');
-                interval = Number.parseInt(val, 10);
+                pingMonitorInterval = interval;
+                localStorage.setItem('router_ping_freq', String(interval));
+                const title = document.getElementById('ping-chart-title');
+                if (title) title.textContent = '📈 Ping Latency — setiap ' + (interval / 1000) + ' detik';
+                if (window.pywebview && window.pywebview.api) startPingMonitor();
+                return;
             }
-            if (![2000, 4000, 8000].includes(interval) && val !== 'custom') return;
-            pingMonitorInterval = interval;
-            localStorage.setItem('router_ping_freq', String(interval));
-            const title = document.getElementById('ping-chart-title');
-            if (title) title.textContent = '📈 Ping Latency — setiap ' + (interval / 1000) + ' detik';
-            if (window.pywebview && window.pywebview.api) startPingMonitor();
+            customInput.classList.add('hidden');
+            if (val === 'auto') {
+                localStorage.setItem('router_ping_freq', 'auto');
+                updatePingMonitorFrequency();
+            }
         }
 
         function showConnectionNotice(kind, message, autoHideMs = 0) {
