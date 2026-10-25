@@ -1833,7 +1833,7 @@ class Api:
                     decoded_source, count=1, flags=re.MULTILINE,
                 )
                 decoded_source, js_replacements = re.subn(
-                    r"^\\s*const APP_VERSION_JS = ['\\"][^'\\"]*['\\"];",
+                    r"""^\s*const APP_VERSION_JS = ['"][^'"]*['"];""",
                     f"        const APP_VERSION_JS = '{tag_name}';",
                     decoded_source, count=1, flags=re.MULTILINE,
                 )
