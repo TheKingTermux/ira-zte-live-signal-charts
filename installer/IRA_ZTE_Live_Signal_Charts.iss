@@ -6,7 +6,7 @@
 #define MyAppExeName "IRA_ZTE_Live_Signal_Charts.exe"
 
 [Setup]
-AppId={{7F3E5E91-8D15-4B7C-AE61-1A2B3C4D5E6F}
+AppId={{7F3E5E91-8D15-4B7C-AE61-1A2B3C4D5E6F}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher=TheKingTermux
