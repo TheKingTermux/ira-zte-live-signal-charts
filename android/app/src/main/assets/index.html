@@ -76,8 +76,6 @@
             <button onclick="animateButton(this); toggleSettingsModal()" class="bg-slate-900 border border-slate-800 hover:border-cyan-500 p-2 rounded-xl text-cyan-400 transition-transform duration-150 active:scale-75 flex items-center justify-center shadow-inner" title="Pengaturan Aplikasi">
                 ⚙️
             </button>
-            <button onclick="togglePingModal()" class="bg-slate-900 border border-slate-800 hover:border-cyan-500 p-2 rounded-xl text-cyan-400 text-xs font-bold transition-transform active:scale-95" title="Ping Tools">PING</button>
-            <button onclick="toggleAboutModal()" class="bg-slate-900 border border-slate-800 hover:border-cyan-500 p-2 rounded-xl text-cyan-400 text-xs font-bold transition-transform active:scale-95" title="About">ⓘ</button>
             <!-- Bell History Button -->
             <button onclick="animateButton(this); toggleHistoryModal()" class="relative bg-slate-900 border border-slate-800 hover:border-cyan-500 p-2 rounded-xl text-cyan-400 transition-transform duration-150 active:scale-75 flex items-center justify-center shadow-inner" title="Riwayat Koneksi Tower">
                 🔔
@@ -306,6 +304,11 @@
                 </div>
             </div>
 
+            <div class="grid grid-cols-2 gap-2">
+                <button onclick="togglePingModal()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-cyan-300 text-xs font-semibold px-3 py-2 rounded-xl transition-all">🛠️ Ping Tools</button>
+                <button onclick="toggleAboutModal()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-cyan-300 text-xs font-semibold px-3 py-2 rounded-xl transition-all">ⓘ About</button>
+            </div>
+
             <div>
                 <label class="text-[11px] font-semibold text-slate-300 block mb-1">Tema Tampilan</label>
                 <select id="setting-theme" onchange="changeTheme(this.value)" class="w-full bg-slate-950 border border-slate-800 text-xs text-slate-200 p-2 rounded-xl focus:outline-none focus:border-cyan-500">
@@ -474,7 +477,7 @@
             document.getElementById('apk-update-status').textContent = 'Memeriksa kanal ' + channel + '...';
             AndroidBridge.checkForApkUpdate(channel);
         }
-        function recordPing(value, host) {
+        function recordPing(value, host, updatePingTools = true) {
             const now = new Date();
             pingSamples.push(value);
             pingTimes.push(now.toLocaleTimeString());
@@ -486,6 +489,7 @@
                 pingChart.update('none');
             }
             document.getElementById('ping-live-value').textContent = value === null ? 'Timeout' : value + ' ms';
+            if (!updatePingTools) return;
             document.getElementById('ping-output').textContent = '[' + now.toLocaleTimeString() + '] ' + host + ': ' + (value === null ? 'timeout / tidak terjangkau' : value + ' ms') + '\n' + document.getElementById('ping-output').textContent;
             const good = pingSamples.filter(v => v !== null);
             if (good.length) {
@@ -543,7 +547,6 @@
             if (modal.classList.contains('pointer-events-none')) {
                 openModal('settingsModal', 'settingsBox');
             } else {
-                clearPingToolHistory();
                 closeModal('settingsModal', 'settingsBox');
             }
         }
@@ -628,7 +631,7 @@
                 livePingBusy = true;
                 try {
                     const value = Number(await Promise.resolve(AndroidBridge.pingHost('1.1.1.1')));
-                    recordPing(value < 0 ? null : value, '1.1.1.1');
+                    recordPing(value < 0 ? null : value, '1.1.1.1', false);
                 } catch (_) {
                     recordPing(null, '1.1.1.1');
                 } finally {
