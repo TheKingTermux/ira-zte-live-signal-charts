@@ -17,6 +17,7 @@ import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.TimeUnit
 
 class MainActivity : Activity() {
     private lateinit var webView: WebView
@@ -71,7 +72,7 @@ class MainActivity : Activity() {
             btn.textContent = 'Unduh & Pasang APK';
             btn.onclick = function() {
               document.getElementById('apk-update-status').textContent = 'Mengunduh APK...';
-              AndroidBridge.downloadAndInstallApk();
+              AndroidBridge.downloadAndInstallApk(document.getElementById('apk-release-channel')?.value || 'stable');
             };
             section.appendChild(btn);
         """.trimIndent() else ""
@@ -90,30 +91,43 @@ class MainActivity : Activity() {
 
     private data class ApkRelease(val version: String, val url: String)
 
-    private fun latestApk(): ApkRelease {
-        val conn = (URL("https://api.github.com/repos/$repository/releases/latest").openConnection() as HttpURLConnection).apply {
+    private fun latestApk(channel: String): ApkRelease {
+        val normalizedChannel = if (channel.equals("beta", true)) "beta" else "stable"
+        val endpoint = if (normalizedChannel == "stable") {
+            "https://api.github.com/repos/$repository/releases/latest"
+        } else {
+            "https://api.github.com/repos/$repository/releases?per_page=30"
+        }
+        val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
             connectTimeout = 10000
             readTimeout = 15000
             setRequestProperty("Accept", "application/vnd.github+json")
             setRequestProperty("User-Agent", "IRA-ZTE-Live-Signal-Charts-Android")
         }
         try {
-            if (conn.responseCode !in 200..299) error("GitHub API HTTP ${conn.responseCode}")
-            val release = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
-            if (release.optBoolean("draft") || release.optBoolean("prerelease")) error("Release terbaru bukan stable.")
-            val assets = release.optJSONArray("assets") ?: JSONArray()
-            for (i in 0 until assets.length()) {
-                val asset = assets.optJSONObject(i) ?: continue
-                val name = asset.optString("name")
-                val url = asset.optString("browser_download_url")
-                if (name.endsWith(".apk", true) && url.startsWith("https://github.com/") && asset.optLong("size") > 100000L) {
-                    return ApkRelease(release.optString("tag_name", release.optString("name")), url)
+            if (conn.responseCode !in 200..299) error("GitHub API HTTP \${conn.responseCode}")
+            val body = conn.inputStream.bufferedReader().use { it.readText() }
+            val releases = if (normalizedChannel == "stable") listOf(JSONObject(body)) else {
+                val array = JSONArray(body)
+                (0 until array.length()).mapNotNull { array.optJSONObject(it) }
+                    .filterNot { it.optBoolean("draft") }
+            }
+            for (release in releases) {
+                if (release.optBoolean("draft")) continue
+                if (normalizedChannel == "stable" && release.optBoolean("prerelease")) continue
+                val assets = release.optJSONArray("assets") ?: JSONArray()
+                for (i in 0 until assets.length()) {
+                    val asset = assets.optJSONObject(i) ?: continue
+                    val name = asset.optString("name")
+                    val url = asset.optString("browser_download_url")
+                    if (name.endsWith(".apk", true) && url.startsWith("https://github.com/") && asset.optLong("size") > 100000L) {
+                        return ApkRelease(release.optString("tag_name", release.optString("name")), url)
+                    }
                 }
             }
-            error("Release stable tidak memiliki aset APK yang valid.")
+            error("Tidak ditemukan aset .apk valid untuk kanal \${normalizedChannel.uppercase()}.")
         } finally { conn.disconnect() }
     }
-
     private fun nums(v: String): List<Int> = Regex("\\d+").findAll(v).mapNotNull { it.value.toIntOrNull() }.toList()
 
     private fun newer(latest: String, current: String): Boolean {
@@ -158,26 +172,47 @@ class MainActivity : Activity() {
 
     inner class RouterBridge {
         @JavascriptInterface
-        fun checkForApkUpdate() {
+        fun checkForApkUpdate(channel: String?) {
+            val selectedChannel = if (channel.equals("beta", true)) "beta" else "stable"
             Thread {
                 try {
-                    val release = latestApk()
+                    val release = latestApk(selectedChannel)
                     val current = installedVersion()
-                    if (newer(release.version, current)) status("Update tersedia: ${release.version} (terpasang: $current).", true)
-                    else status("Aplikasi sudah terbaru ($current). Release: ${release.version}.")
-                } catch (e: Exception) { status("Gagal memeriksa update: ${e.localizedMessage ?: "kesalahan jaringan"}") }
+                    if (newer(release.version, current)) status("Update \${selectedChannel.uppercase()} tersedia: \${release.version} (terpasang: $current).", true)
+                    else status("Aplikasi sudah terbaru untuk kanal \${selectedChannel.uppercase()} ($current). Release: \${release.version}.")
+                } catch (e: Exception) { status("Gagal memeriksa update: \${e.localizedMessage ?: "kesalahan jaringan"}") }
             }.start()
         }
 
         @JavascriptInterface
-        fun downloadAndInstallApk() {
+        fun downloadAndInstallApk(channel: String?) {
+            val selectedChannel = if (channel.equals("beta", true)) "beta" else "stable"
             Thread {
                 try {
-                    val release = latestApk()
-                    if (!newer(release.version, installedVersion())) { status("Tidak ada APK stable yang lebih baru."); return@Thread }
+                    val release = latestApk(selectedChannel)
+                    if (!newer(release.version, installedVersion())) { status("Tidak ada APK \${selectedChannel.uppercase()} yang lebih baru."); return@Thread }
                     installApk(release)
-                } catch (e: Exception) { status("Gagal mengunduh APK: ${e.localizedMessage ?: "kesalahan jaringan"}") }
+                } catch (e: Exception) { status("Gagal mengunduh APK: \${e.localizedMessage ?: "kesalahan jaringan"}") }
             }.start()
+        }
+
+        @JavascriptInterface
+        fun getAppVersion(): String = installedVersion()
+
+        @JavascriptInterface
+        fun pingHost(host: String?): Int {
+            val target = host?.trim().orEmpty()
+            if (target.isEmpty() || target.length > 253 || target.startsWith("-") ||
+                !target.matches(Regex("[A-Za-z0-9.-]+"))) return -1
+            return try {
+                val process = ProcessBuilder("ping", "-c", "1", "-W", "2", target)
+                    .redirectErrorStream(true).start()
+                val output = process.inputStream.bufferedReader().use { it.readText() }
+                val completed = process.waitFor(3, TimeUnit.SECONDS)
+                if (!completed) { process.destroyForcibly(); -1 }
+                else if (process.exitValue() != 0) -1
+                else Regex("time[=<]([0-9.]+)").find(output)?.groupValues?.get(1)?.toDoubleOrNull()?.toInt() ?: 0
+            } catch (_: Exception) { -1 }
         }
 
         @JavascriptInterface
