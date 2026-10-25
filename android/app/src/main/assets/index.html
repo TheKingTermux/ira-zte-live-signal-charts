@@ -467,6 +467,7 @@
             if (pingChart) {
                 pingChart.data.labels = pingTimes.slice();
                 pingChart.data.datasets[0].data = pingSamples.slice();
+                applyDynamicYAxis(pingChart);
                 pingChart.update('none');
             }
             document.getElementById('ping-live-value').textContent = value === null ? 'Timeout' : value + ' ms';
