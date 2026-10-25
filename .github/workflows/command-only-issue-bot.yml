@@ -10,10 +10,7 @@ permissions:
 
 jobs:
   handle-command:
-    # Ignore normal discussion and bot comments; only process exact slash commands.
-    if: >-
-      github.event.issue.pull_request == null ||
-      github.event.issue.pull_request.url != ''
+    # The script ignores normal discussion and bot comments; only exact slash commands are processed.
     runs-on: ubuntu-latest
     steps:
       - name: Handle supported commands
