@@ -1418,6 +1418,7 @@ HTML_CONTENT = """
                         }
                         chartPing.data.labels.push(new Date().toLocaleTimeString('id-ID'));
                         chartPing.data.datasets[0].data.push(value);
+                        applyDynamicYAxis(chartPing);
                         chartPing.update();
                     } else {
                         valueEl.innerText = '— ms';
