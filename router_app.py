@@ -191,7 +191,7 @@ HTML_CONTENT = """
                             <span id="text-ping">Menunggu</span>
                         </div>
                     </div>
-                    <span id="ping-chart-title" class="text-[9px] text-slate-400 -mt-0.5">📈 Ping Latency — setiap ${pingMonitorInterval / 1000} detik</span>
+                    <span id="ping-chart-title" class="text-[9px] text-slate-400 -mt-0.5">📈 Ping Latency</span>
                     <div id="val-ping" class="text-base font-bold text-slate-100 leading-tight">— ms</div>
                 </div>
                 <div class="h-12 w-full relative flex-grow">
