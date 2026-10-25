@@ -297,8 +297,8 @@
             <div>
                 <label class="text-[11px] font-semibold text-slate-300 block mb-1">Frekuensi Update Data</label>
                 <select id="setting-freq" onchange="changeFrequency(this.value)" class="w-full bg-slate-950 border border-slate-800 text-xs text-slate-200 p-2 rounded-xl focus:outline-none focus:border-cyan-500">
-                    <option value="1000">Cepat (1 Detik)</option>
-                    <option value="2000" selected>Normal (2 Detik)</option>
+                    <option value="1000" selected>Cepat (1 Detik)</option>
+                    <option value="2000">Normal (2 Detik)</option>
                     <option value="4000">Lambat (4 Detik)</option>
                 </select>
             </div>
@@ -393,7 +393,7 @@
         let wasInternetOk = true;
         let modalDismissed = false;
         let unreadCount = 0;
-        let currentIntervalTime = 2000;
+        let currentIntervalTime = 1000;
         let pollTimer = null;
         let pingChart = null;
         let pingSamples = [];
@@ -812,7 +812,7 @@
             const frequencySelect = document.getElementById('setting-freq');
             // Match the original app's 1 / 2 / 4 second options (2 seconds by default).
             currentIntervalTime = [1000, 2000, 4000].includes(Number(frequencySelect.value))
-                ? Number(frequencySelect.value) : 2000;
+                ? Number(frequencySelect.value) : 1000;
             frequencySelect.value = String(currentIntervalTime);
             fetchTelemetry();
             pollTimer = setInterval(fetchTelemetry, currentIntervalTime);
