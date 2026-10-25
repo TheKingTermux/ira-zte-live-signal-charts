@@ -191,7 +191,7 @@ HTML_CONTENT = """
                             <span id="text-ping">Menunggu</span>
                         </div>
                     </div>
-                    <span class="text-[9px] text-slate-400 -mt-0.5">Latensi HTTPS ke Cloudflare</span>
+                    <span id="ping-chart-title" class="text-[9px] text-slate-400 -mt-0.5">📈 Ping Latency</span>
                     <div id="val-ping" class="text-base font-bold text-slate-100 leading-tight">— ms</div>
                 </div>
                 <div class="h-12 w-full relative flex-grow">
@@ -346,6 +346,15 @@ HTML_CONTENT = """
                             <option value="2000">Normal (2 Detik)</option>
                             <option value="4000">Lambat (4 Detik)</option>
                         </select>
+                    </div>
+                    <div>
+                        <label class="text-[11px] font-semibold text-slate-300 block mb-1">Frekuensi Grafik Ping Dashboard</label>
+                        <select id="setting-ping-freq" onchange="changePingFrequency(this.value)" class="w-full bg-slate-950 border border-slate-800 text-xs text-slate-200 p-2 rounded-xl focus:outline-none focus:border-cyan-500 transition-all">
+                            <option value="auto">Mengikuti update interval (×2)</option>
+                            <option value="custom">Custom</option>
+                        </select>
+                        <input id="setting-ping-freq-custom" type="number" min="1" max="3600" step="1" placeholder="Interval custom (detik)" oninput="changePingFrequency('custom')" class="hidden mt-2 w-full bg-slate-950 border border-slate-800 text-xs text-slate-200 p-2 rounded-xl focus:outline-none focus:border-cyan-500 transition-all">
+                        <p class="text-[10px] text-slate-500 mt-1">Default mengikuti 2× interval refresh data. Custom: 1–3600 detik.</p>
                     </div>
                 </div>
 
@@ -560,6 +569,27 @@ HTML_CONTENT = """
         });
 
         window.addEventListener('pywebviewready', function() {
+            const pingFreqSelect = document.getElementById('setting-ping-freq');
+            const savedPingFreq = localStorage.getItem('router_ping_freq');
+            if (savedPingFreq === null || savedPingFreq === 'auto') {
+                pingFreqSelect.value = 'auto';
+                updatePingMonitorFrequency(false);
+            } else {
+                const savedInterval = Number.parseInt(savedPingFreq, 10);
+                if (Number.isFinite(savedInterval) && savedInterval >= 1000 && savedInterval <= 3600000) {
+                    pingFreqSelect.value = 'custom';
+                    pingMonitorInterval = savedInterval;
+                    const customInput = document.getElementById('setting-ping-freq-custom');
+                    customInput.classList.remove('hidden');
+                    customInput.value = String(Math.round(savedInterval / 1000));
+                    const pingTitle = document.getElementById('ping-chart-title');
+                    if (pingTitle) pingTitle.textContent = '📈 Ping Latency — setiap ' + (pingMonitorInterval / 1000) + ' detik';
+                } else {
+                    pingFreqSelect.value = 'auto';
+                    localStorage.setItem('router_ping_freq', 'auto');
+                    updatePingMonitorFrequency(false);
+                }
+            }
             startPolling();
             startPingMonitor();
         });
@@ -1156,12 +1186,22 @@ HTML_CONTENT = """
             box.classList.add('scale-95');
         }
 
+        function clearPingToolHistory() {
+            const output = document.getElementById('ping-output');
+            if (output) {
+                output.innerText = 'Riwayat ping dibersihkan.';
+                output.scrollTop = 0;
+                output.classList.remove('animate-pulse');
+            }
+        }
+
         function toggleSettingsModal() {
             let modal = document.getElementById('settingsModal');
             if (modal.classList.contains('pointer-events-none')) {
                 resizeSettingsContent(activeSettingsTab, false);
                 openModal('settingsModal', 'settingsBox');
             } else {
+                clearPingToolHistory();
                 closeModal('settingsModal', 'settingsBox');
             }
         }
@@ -1203,6 +1243,7 @@ HTML_CONTENT = """
             currentIntervalTime = parseInt(val, 10) || 1000;
             localStorage.setItem('router_freq', String(currentIntervalTime));
             if (window.pywebview && window.pywebview.api) startPolling();
+            updatePingMonitorFrequency();
         }
 
         function addHistoryLog(status, timeStr) {
@@ -1295,6 +1336,8 @@ HTML_CONTENT = """
         const chartPing = createChart(document.getElementById('chartPing').getContext('2d'), '#e879f9');
         let pingMonitorTimer = null;
         let pingMonitorBusy = false;
+        let pingMonitorInterval = Number.parseInt(localStorage.getItem('router_ping_freq') || '2000', 10);
+        if (!Number.isFinite(pingMonitorInterval) || pingMonitorInterval < 1000 || pingMonitorInterval > 3600000) pingMonitorInterval = 2000;
 
         function getStatusInfo(type, val, isConnected) {
             if (!isConnected) {
@@ -1363,7 +1406,39 @@ HTML_CONTENT = """
                 }
             };
             samplePing();
-            pingMonitorTimer = setInterval(samplePing, 5000);
+            pingMonitorTimer = setInterval(samplePing, pingMonitorInterval);
+        }
+
+        function updatePingMonitorFrequency(restart = true) {
+            const select = document.getElementById('setting-ping-freq');
+            if (select && select.value === 'auto') {
+                pingMonitorInterval = Math.min(3600000, Math.max(1000, currentIntervalTime * 2));
+                const title = document.getElementById('ping-chart-title');
+                if (title) title.textContent = '📈 Ping Latency — setiap ' + (pingMonitorInterval / 1000) + ' detik (update ×2)';
+                if (restart && window.pywebview && window.pywebview.api) startPingMonitor();
+            }
+        }
+
+        function changePingFrequency(val) {
+            const select = document.getElementById('setting-ping-freq');
+            const customInput = document.getElementById('setting-ping-freq-custom');
+            let interval;
+            if (val === 'custom') {
+                customInput.classList.remove('hidden');
+                interval = Math.round(Number(customInput.value) * 1000);
+                if (!Number.isFinite(interval) || interval < 1000 || interval > 3600000) return;
+                pingMonitorInterval = interval;
+                localStorage.setItem('router_ping_freq', String(interval));
+                const title = document.getElementById('ping-chart-title');
+                if (title) title.textContent = '📈 Ping Latency — setiap ' + (interval / 1000) + ' detik';
+                if (window.pywebview && window.pywebview.api) startPingMonitor();
+                return;
+            }
+            customInput.classList.add('hidden');
+            if (val === 'auto') {
+                localStorage.setItem('router_ping_freq', 'auto');
+                updatePingMonitorFrequency();
+            }
         }
 
         function showConnectionNotice(kind, message, autoHideMs = 0) {
@@ -1717,10 +1792,23 @@ class Api:
         try:
             param = "-n" if platform.system().lower() == "windows" else "-c"
             command = ["ping", param, "4", host]
-            completed = subprocess.run(
-                command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, timeout=20, check=False, shell=False
-            )
+            # Prevent a console window flashing when ping is triggered from the
+            # GUI in both frozen EXE and regular Python launches on Windows.
+            run_options = {
+                "stdout": subprocess.PIPE,
+                "stderr": subprocess.STDOUT,
+                "text": True,
+                "timeout": 20,
+                "check": False,
+                "shell": False,
+            }
+            if platform.system().lower() == "windows":
+                run_options["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = 0
+                run_options["startupinfo"] = startupinfo
+            completed = subprocess.run(command, **run_options)
             output = completed.stdout or ""
             if completed.returncode == 0:
                 return {"success": True, "output": output}
