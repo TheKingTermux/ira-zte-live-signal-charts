@@ -1295,6 +1295,57 @@ HTML_CONTENT = """
         }
 
         // Animated Smooth Line Charts with Chart.js
+        function applyDynamicYAxis(chart) {
+            const values = chart.data.datasets.flatMap(dataset => dataset.data)
+                .map(Number).filter(value => Number.isFinite(value));
+            if (!values.length) return;
+            const minValue = Math.min(...values);
+            const maxValue = Math.max(...values);
+            const span = maxValue - minValue;
+            // Center the newest sample vertically: use a symmetric Y range around
+            // the latest reading while retaining a sensible scale for the history.
+            const latestValue = Number(chart.data.datasets[0].data.slice(-1)[0]);
+            if (Number.isFinite(latestValue)) {
+                const deviation = Math.max(
+                    Math.abs(latestValue - minValue),
+                    Math.abs(maxValue - latestValue)
+                );
+                const centeredSpan = Math.max(deviation * 1.25, 1);
+                let centeredStep;
+                if (centeredSpan <= 2) centeredStep = 1;
+                else {
+                    const rawStep = (centeredSpan * 2) / 4;
+                    const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
+                    const normalized = rawStep / magnitude;
+                    centeredStep = (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10) * magnitude;
+                }
+                const halfRange = Math.max(centeredStep * 2, Math.ceil(centeredSpan / centeredStep) * centeredStep);
+                chart.options.scales.y.min = Number((latestValue - halfRange).toFixed(6));
+                chart.options.scales.y.max = Number((latestValue + halfRange).toFixed(6));
+                chart.options.scales.y.ticks.stepSize = centeredStep;
+                return;
+            }
+            let step;
+            if (span <= 3) {
+                step = 1;
+            } else {
+                const rawStep = span / 3;
+                const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
+                const normalized = rawStep / magnitude;
+                step = (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10) * magnitude;
+            }
+            if (!Number.isFinite(step) || step <= 0) step = 1;
+            let axisMin = Math.floor(minValue / step) * step;
+            let axisMax = Math.ceil(maxValue / step) * step;
+            if (axisMin === axisMax) axisMin -= step;
+            // Add one tick above the strongest reading so labels remain readable
+            // when values fall between integer ticks (e.g. -21.5).
+            axisMax += step;
+            chart.options.scales.y.min = Number(axisMin.toFixed(6));
+            chart.options.scales.y.max = Number(axisMax.toFixed(6));
+            chart.options.scales.y.ticks.stepSize = step;
+        }
+
         function createChart(ctx, color) {
             return new Chart(ctx, {
                 type: 'line',
@@ -1322,7 +1373,7 @@ HTML_CONTENT = """
                         x: { display: false },
                         y: { 
                             grid: { color: 'rgba(51, 65, 85, 0.15)' },
-                            ticks: { font: { size: 9 }, color: '#94a3b8', maxTicksLimit: 3 }
+                            ticks: { font: { size: 9 }, color: '#94a3b8', maxTicksLimit: 5, stepSize: 1 }
                         }
                     }
                 }
@@ -1391,6 +1442,7 @@ HTML_CONTENT = """
                         }
                         chartPing.data.labels.push(new Date().toLocaleTimeString('id-ID'));
                         chartPing.data.datasets[0].data.push(value);
+                        applyDynamicYAxis(chartPing);
                         chartPing.update();
                     } else {
                         valueEl.innerText = '— ms';
@@ -1628,6 +1680,7 @@ HTML_CONTENT = """
                 }
                 chart.data.labels.push(nowTime);
                 chart.data.datasets[0].data.push(val);
+                applyDynamicYAxis(chart);
                 // Keep a short smooth transition; the fixed-size history prevents runaway points.
                 chart.update();
             }
