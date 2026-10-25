@@ -42,6 +42,8 @@
             <button onclick="animateButton(this); toggleSettingsModal()" class="bg-slate-900 border border-slate-800 hover:border-cyan-500 p-2 rounded-xl text-cyan-400 transition-transform duration-150 active:scale-75 flex items-center justify-center shadow-inner" title="Pengaturan Aplikasi">
                 ⚙️
             </button>
+            <button onclick="togglePingModal()" class="bg-slate-900 border border-slate-800 hover:border-cyan-500 p-2 rounded-xl text-cyan-400 text-xs font-bold transition-transform active:scale-95" title="Ping Tools">PING</button>
+            <button onclick="toggleAboutModal()" class="bg-slate-900 border border-slate-800 hover:border-cyan-500 p-2 rounded-xl text-cyan-400 text-xs font-bold transition-transform active:scale-95" title="About">ⓘ</button>
             <!-- Bell History Button -->
             <button onclick="animateButton(this); toggleHistoryModal()" class="relative bg-slate-900 border border-slate-800 hover:border-cyan-500 p-2 rounded-xl text-cyan-400 transition-transform duration-150 active:scale-75 flex items-center justify-center shadow-inner" title="Riwayat Koneksi Tower">
                 🔔
@@ -138,6 +140,15 @@
                 </div>
             </div>
 
+        </div>
+
+        <!-- Ping latency graph -->
+        <div class="card-bg bg-slate-900/90 border border-slate-800/80 p-3 rounded-xl shadow-md">
+            <div class="flex items-center justify-between gap-2 mb-2">
+                <h2 class="text-xs font-bold text-cyan-400">📈 Ping Latency (1.1.1.1)</h2>
+                <span id="ping-live-value" class="text-xs font-bold text-fuchsia-300">Menunggu ping…</span>
+            </div>
+            <div class="h-20 w-full relative"><canvas id="chartPing"></canvas></div>
         </div>
 
         <!-- Tower Information Panel (Added Cell ID 5G & Internet Status) -->
@@ -245,6 +256,17 @@
                 <button onclick="toggleSettingsModal()" class="text-slate-400 hover:text-white text-xs font-bold px-2 py-1 rounded-lg bg-slate-800">✕</button>
             </div>
             
+            <div class="rounded-xl border border-slate-800 bg-slate-950/50 p-3 space-y-2">
+                <label class="text-[11px] font-semibold text-slate-300 block">Kanal Pembaruan APK</label>
+                <select id="apk-release-channel" class="w-full bg-slate-950 border border-slate-800 text-xs text-slate-200 p-2 rounded-xl">
+                    <option value="stable">Stable Release (direkomendasikan)</option>
+                    <option value="beta">Beta / Prerelease</option>
+                </select>
+                <p class="text-[10px] text-slate-500">Stable memakai release resmi; Beta mengizinkan prerelease. Hanya aset .apk yang akan dipilih.</p>
+                <button id="apk-check-btn" onclick="checkApkUpdate()" class="w-full bg-slate-800 text-white text-xs px-3 py-2 rounded-xl">Periksa Pembaruan APK</button>
+                <div id="apk-update-status" class="text-[10px] text-slate-400"></div>
+            </div>
+
             <div>
                 <label class="text-[11px] font-semibold text-slate-300 block mb-1">Tema Tampilan</label>
                 <select id="setting-theme" onchange="changeTheme(this.value)" class="w-full bg-slate-950 border border-slate-800 text-xs text-slate-200 p-2 rounded-xl focus:outline-none focus:border-cyan-500">
@@ -264,6 +286,44 @@
 
             <div class="pt-2 flex justify-end">
                 <button onclick="toggleSettingsModal()" class="bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold px-4 py-2 rounded-xl transition-all">Simpan & Tutup</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Ping Tools Modal -->
+    <div id="pingModal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm opacity-0 pointer-events-none modal-transition">
+        <div id="pingBox" class="bg-slate-900 border border-slate-800 p-5 rounded-2xl max-w-lg w-full mx-4 shadow-2xl text-slate-100 transform scale-95 transition-transform duration-200">
+            <div class="flex justify-between items-center pb-2 border-b border-slate-800 mb-3">
+                <h3 class="text-sm font-bold text-cyan-400">🛠️ Ping Tools</h3>
+                <button onclick="togglePingModal()" class="text-slate-400 text-xs font-bold px-2 py-1 rounded-lg bg-slate-800">✕</button>
+            </div>
+            <label class="text-[11px] font-semibold text-slate-300 block mb-1">Target Host / IP</label>
+            <div class="flex gap-2 mb-3">
+                <input id="ping-host" value="1.1.1.1" maxlength="253" class="min-w-0 flex-1 bg-slate-950 border border-slate-800 text-xs text-slate-200 p-2 rounded-xl" />
+                <button id="btn-ping" onclick="runManualPing()" class="bg-cyan-600 text-white px-4 py-2 rounded-xl text-xs font-semibold">Ping</button>
+            </div>
+            <div class="grid grid-cols-3 gap-2 mb-3 text-center">
+                <div class="bg-slate-950 rounded-lg p-2"><div class="text-[9px] text-slate-400">MIN</div><div id="ping-min" class="text-xs font-bold">—</div></div>
+                <div class="bg-slate-950 rounded-lg p-2"><div class="text-[9px] text-slate-400">AVG</div><div id="ping-avg" class="text-xs font-bold text-fuchsia-300">—</div></div>
+                <div class="bg-slate-950 rounded-lg p-2"><div class="text-[9px] text-slate-400">MAX</div><div id="ping-max" class="text-xs font-bold">—</div></div>
+            </div>
+            <pre id="ping-output" class="w-full bg-slate-950 border border-slate-800 text-[10px] text-emerald-400 p-2.5 rounded-xl h-40 overflow-y-auto font-mono whitespace-pre-wrap break-words">Masukkan host/IP lalu tekan Ping.</pre>
+        </div>
+    </div>
+
+    <!-- About Modal -->
+    <div id="aboutModal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm opacity-0 pointer-events-none modal-transition">
+        <div id="aboutBox" class="bg-slate-900 border border-slate-800 p-5 rounded-2xl max-w-sm w-full mx-4 shadow-2xl text-slate-100 transform scale-95 transition-transform duration-200">
+            <div class="flex justify-between items-center pb-2 border-b border-slate-800 mb-3">
+                <h3 class="text-sm font-bold text-cyan-400">ⓘ About IRA ZTE</h3>
+                <button onclick="toggleAboutModal()" class="text-slate-400 text-xs font-bold px-2 py-1 rounded-lg bg-slate-800">✕</button>
+            </div>
+            <div class="space-y-2 text-xs text-slate-300">
+                <p class="font-bold text-white">IRA ZTE Live Signal Charts</p>
+                <p>Dashboard telemetry real-time untuk router ZTE MC8501 5G, termasuk grafik kualitas sinyal, status tower/internet, riwayat koneksi, dan ping latency.</p>
+                <p>Updater APK menggunakan GitHub Releases. Stable dan Beta hanya mengunduh aset APK yang cocok.</p>
+                <p class="text-[10px] text-slate-500">Versi terpasang: <span id="about-version">Android app</span></p>
+                <a class="text-cyan-400 underline" href="https://github.com/TheKingTermux/ira-zte-live-signal-charts" target="_blank">GitHub Repository</a>
             </div>
         </div>
     </div>
@@ -316,6 +376,74 @@
         let unreadCount = 0;
         let currentIntervalTime = 2000;
         let pollTimer = null;
+        let pingChart = null;
+        let pingSamples = [];
+        let pingTimes = [];
+        let pingBusy = false;
+
+
+        function togglePingModal() {
+            const modal = document.getElementById('pingModal');
+            const box = document.getElementById('pingBox');
+            const opening = modal.classList.contains('pointer-events-none');
+            modal.classList.toggle('opacity-0', !opening);
+            modal.classList.toggle('pointer-events-none', !opening);
+            box.classList.toggle('scale-95', !opening);
+            box.classList.toggle('scale-100', opening);
+        }
+        function toggleAboutModal() {
+            const modal = document.getElementById('aboutModal');
+            const box = document.getElementById('aboutBox');
+            const opening = modal.classList.contains('pointer-events-none');
+            modal.classList.toggle('opacity-0', !opening);
+            modal.classList.toggle('pointer-events-none', !opening);
+            box.classList.toggle('scale-95', !opening);
+            box.classList.toggle('scale-100', opening);
+        }
+        function checkApkUpdate() {
+            const channel = document.getElementById('apk-release-channel').value;
+            document.getElementById('apk-update-status').textContent = 'Memeriksa kanal ' + channel + '...';
+            AndroidBridge.checkForApkUpdate(channel);
+        }
+        function recordPing(value, host) {
+            const now = new Date();
+            pingSamples.push(value);
+            pingTimes.push(now.toLocaleTimeString());
+            if (pingSamples.length > 30) { pingSamples.shift(); pingTimes.shift(); }
+            if (pingChart) {
+                pingChart.data.labels = pingTimes.slice();
+                pingChart.data.datasets[0].data = pingSamples.slice();
+                pingChart.update('none');
+            }
+            document.getElementById('ping-live-value').textContent = value === null ? 'Timeout' : value + ' ms';
+            document.getElementById('ping-output').textContent = '[' + now.toLocaleTimeString() + '] ' + host + ': ' + (value === null ? 'timeout / tidak terjangkau' : value + ' ms') + '\n' + document.getElementById('ping-output').textContent;
+            const good = pingSamples.filter(v => v !== null);
+            if (good.length) {
+                document.getElementById('ping-min').textContent = Math.min(...good) + ' ms';
+                document.getElementById('ping-avg').textContent = (good.reduce((a,b)=>a+b,0)/good.length).toFixed(1) + ' ms';
+                document.getElementById('ping-max').textContent = Math.max(...good) + ' ms';
+            }
+        }
+        async function runManualPing() {
+            if (pingBusy) return;
+            const host = document.getElementById('ping-host').value.trim();
+            if (!host || host.length > 253 || host.startsWith('-') || !/^[a-zA-Z0-9.-]+$/.test(host)) {
+                document.getElementById('ping-output').textContent = 'Host/IP tidak valid.';
+                return;
+            }
+            pingBusy = true;
+            document.getElementById('btn-ping').disabled = true;
+            document.getElementById('ping-output').textContent = 'Menjalankan ping ke ' + host + '...';
+            try {
+                const value = await Promise.resolve(AndroidBridge.pingHost(host));
+                recordPing(value < 0 ? null : Number(value), host);
+            } catch (e) {
+                document.getElementById('ping-output').textContent = 'Ping gagal: ' + e;
+            } finally {
+                pingBusy = false;
+                document.getElementById('btn-ping').disabled = false;
+            }
+        }
 
         function animateButton(btn) {
             btn.classList.add('scale-75');
@@ -382,6 +510,13 @@
             currentIntervalTime = parseInt(val);
             if (pollTimer) clearInterval(pollTimer);
             pollTimer = setInterval(fetchTelemetry, currentIntervalTime);
+            setInterval(async function() {
+                if (pingBusy) return;
+                try {
+                    const value = Number(await Promise.resolve(AndroidBridge.pingHost('1.1.1.1')));
+                    recordPing(value < 0 ? null : value, '1.1.1.1');
+                } catch (_) { recordPing(null, '1.1.1.1'); }
+            }, 5000);
         }
 
         function addHistoryLog(status, timeStr) {
@@ -470,6 +605,14 @@
         const chartRssi = createChart(document.getElementById('chartRssi').getContext('2d'), '#3b82f6');
         const chartRsrq = createChart(document.getElementById('chartRsrq').getContext('2d'), '#f97316');
         const chartSinr = createChart(document.getElementById('chartSinr').getContext('2d'), '#10b981');
+        pingChart = new Chart(document.getElementById('chartPing').getContext('2d'), {
+            type: 'line',
+            data: { labels: [], datasets: [{ label: 'Ping ms', data: [], borderColor: '#e879f9', backgroundColor: '#e879f915', fill: true, tension: 0.25, pointRadius: 1 }] },
+            options: { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { display: false } },
+                scales: { x: { display: false }, y: { ticks: { color: '#94a3b8', maxTicksLimit: 3 }, grid: { color: 'rgba(51,65,85,.2)' } } } }
+        });
+        document.getElementById('about-version').textContent = 'v' + (window.AndroidBridge.getAppVersion ? window.AndroidBridge.getAppVersion() : 'Android');
+
 
         function getStatusInfo(type, val, isConnected) {
             if (!isConnected) {
