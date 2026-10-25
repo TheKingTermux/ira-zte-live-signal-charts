@@ -1156,12 +1156,22 @@ HTML_CONTENT = """
             box.classList.add('scale-95');
         }
 
+        function clearPingToolHistory() {
+            const output = document.getElementById('ping-output');
+            if (output) {
+                output.innerText = 'Riwayat ping dibersihkan.';
+                output.scrollTop = 0;
+                output.classList.remove('animate-pulse');
+            }
+        }
+
         function toggleSettingsModal() {
             let modal = document.getElementById('settingsModal');
             if (modal.classList.contains('pointer-events-none')) {
                 resizeSettingsContent(activeSettingsTab, false);
                 openModal('settingsModal', 'settingsBox');
             } else {
+                clearPingToolHistory();
                 closeModal('settingsModal', 'settingsBox');
             }
         }
