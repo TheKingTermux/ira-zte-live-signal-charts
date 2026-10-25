@@ -164,7 +164,7 @@
         <!-- Ping latency graph -->
         <div class="card-bg bg-slate-900/90 border border-slate-800/80 p-3 rounded-xl shadow-md">
             <div class="flex items-center justify-between gap-2 mb-2">
-                <h2 class="text-xs font-bold text-cyan-400">📈 Ping Latency (1.1.1.1)</h2>
+                <h2 id="ping-chart-title" class="text-xs font-bold text-cyan-400">📈 Ping Latency (1.1.1.1) — setiap 2 detik</h2>
                 <span id="ping-live-value" class="text-xs font-bold text-fuchsia-300">Menunggu ping…</span>
             </div>
             <div class="chart-container h-20"><canvas id="chartPing"></canvas></div>
@@ -306,6 +306,17 @@
                     <option value="2000">Normal (2 Detik)</option>
                     <option value="4000">Lambat (4 Detik)</option>
                 </select>
+            </div>
+            <div>
+                <label class="text-[11px] font-semibold text-slate-300 block mb-1">Frekuensi Grafik Ping Dashboard</label>
+                <select id="setting-ping-freq" onchange="changePingFrequency(this.value)" class="w-full bg-slate-950 border border-slate-800 text-xs text-slate-200 p-2 rounded-xl focus:outline-none focus:border-cyan-500">
+                    <option value="2000">2 detik (refresh ×2)</option>
+                    <option value="4000">4 detik (refresh ×2)</option>
+                    <option value="8000">8 detik (refresh ×2)</option>
+                    <option value="custom">Custom</option>
+                </select>
+                <input id="setting-ping-freq-custom" type="number" min="1" max="3600" step="1" placeholder="Interval custom (detik)" oninput="changePingFrequency('custom')" class="hidden mt-2 w-full bg-slate-950 border border-slate-800 text-xs text-slate-200 p-2 rounded-xl">
+                <p class="text-[10px] text-slate-500 mt-1">Default 2 detik (1 detik refresh ×2). Custom: 1–3600 detik.</p>
             </div>
 
             <div class="pt-2 flex justify-end">
@@ -554,28 +565,48 @@
             }
         }
 
-        function changeFrequency(val) {
-            const allowedIntervals = [1000, 2000, 4000];
-            const requestedInterval = Number.parseInt(val, 10);
-            currentIntervalTime = allowedIntervals.includes(requestedInterval) ? requestedInterval : 2000;
+        let livePingTimer = null;
+        let livePingBusy = false;
+        let livePingInterval = 2000;
 
-            // Restart only the telemetry timer. Changing the frequency must not
-            // create additional ping timers every time the setting is changed.
-            if (pollTimer) clearInterval(pollTimer);
-            fetchTelemetry();
-            pollTimer = setInterval(fetchTelemetry, currentIntervalTime);
+        function changePingFrequency(val) {
+            const select = document.getElementById('setting-ping-freq');
+            const customInput = document.getElementById('setting-ping-freq-custom');
+            let interval;
+            if (val === 'custom') {
+                customInput.classList.remove('hidden');
+                const seconds = Number(customInput.value);
+                if (!Number.isFinite(seconds) || seconds < 1 || seconds > 3600) return;
+                interval = Math.round(seconds * 1000);
+            } else {
+                customInput.classList.add('hidden');
+                interval = Number.parseInt(val, 10);
+            }
+            if (![2000, 4000, 8000].includes(interval) && val !== 'custom') return;
+            livePingInterval = interval;
+            localStorage.setItem('router_ping_freq', String(interval));
+            const title = document.getElementById('ping-chart-title');
+            if (title) title.textContent = '📈 Ping Latency (1.1.1.1) — setiap ' + (interval / 1000) + ' detik';
+            if (livePingTimer) clearInterval(livePingTimer);
+            startLivePing();
         }
 
         function startLivePing() {
-            setInterval(async function() {
-                if (pingBusy) return;
+            if (livePingTimer) clearInterval(livePingTimer);
+            const sample = async function() {
+                if (livePingBusy || pingBusy) return;
+                livePingBusy = true;
                 try {
                     const value = Number(await Promise.resolve(AndroidBridge.pingHost('1.1.1.1')));
                     recordPing(value < 0 ? null : value, '1.1.1.1');
                 } catch (_) {
                     recordPing(null, '1.1.1.1');
+                } finally {
+                    livePingBusy = false;
                 }
-            }, 5000);
+            };
+            sample();
+            livePingTimer = setInterval(sample, livePingInterval);
         }
 
         function addHistoryLog(status, timeStr) {
@@ -845,6 +876,19 @@
             frequencySelect.value = String(currentIntervalTime);
             fetchTelemetry();
             pollTimer = setInterval(fetchTelemetry, currentIntervalTime);
+            const pingFreqSelect = document.getElementById('setting-ping-freq');
+            const savedPingFreq = Number.parseInt(localStorage.getItem('router_ping_freq') || '2000', 10);
+            livePingInterval = Number.isFinite(savedPingFreq) && savedPingFreq >= 1000 && savedPingFreq <= 3600000 ? savedPingFreq : 2000;
+            if ([2000, 4000, 8000].includes(livePingInterval)) {
+                pingFreqSelect.value = String(livePingInterval);
+            } else {
+                pingFreqSelect.value = 'custom';
+                const customInput = document.getElementById('setting-ping-freq-custom');
+                customInput.classList.remove('hidden');
+                customInput.value = String(Math.round(livePingInterval / 1000));
+            }
+            const pingTitle = document.getElementById('ping-chart-title');
+            if (pingTitle) pingTitle.textContent = '📈 Ping Latency (1.1.1.1) — setiap ' + (livePingInterval / 1000) + ' detik';
             startLivePing();
         });
     </script>
