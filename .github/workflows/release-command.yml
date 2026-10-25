@@ -231,3 +231,34 @@ jobs:
             release-assets/*.apk
             router_app.py
           fail_on_unmatched_files: true
+
+  help:
+    if: >-
+      github.event.comment.body != '' &&
+      github.event.comment.body == '/cmd' &&
+      github.event.comment.user.type != 'Bot' &&
+      !endsWith(github.event.comment.user.login, '[bot]')
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: read
+    steps:
+      - name: Reply with release commands
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const issueNumber = context.issue.number;
+            const body = [
+              '🤖 **Perintah Rilis IRA ZTE**',
+              '',
+              '- `/cmd` — menampilkan daftar perintah ini.',
+              '- `/build beta` — membuat rilis beta dari branch `dev`.',
+              '- `/build stable` — membuat rilis stabil dari branch `main`.',
+              '',
+              '**Catatan:** perintah build hanya dapat dijalankan oleh pemilik repositori. Kirim perintah sebagai komentar tersendiri.'
+            ].join('\\n');
+            await github.rest.issues.createComment({
+              owner, repo, issue_number: issueNumber, body
+            });
+
