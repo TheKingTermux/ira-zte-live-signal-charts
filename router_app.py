@@ -1295,6 +1295,11 @@ HTML_CONTENT = """
         }
 
         // Animated Smooth Line Charts with Chart.js
+        function safeApplyDynamicYAxis(chart) {
+            try { applyDynamicYAxis(chart); }
+            catch (error) { console.error("Gagal mengatur skala grafik:", error); }
+        }
+
         function applyDynamicYAxis(chart) {
             const values = chart.data.datasets.flatMap(dataset => dataset.data)
                 .map(Number).filter(value => Number.isFinite(value));
@@ -1704,6 +1709,9 @@ HTML_CONTENT = """
 
         async function fetchTelemetry() {
             try {
+                if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.get_router_data !== 'function') {
+                    throw new Error('Bridge pywebview belum siap');
+                }
                 let res = await window.pywebview.api.get_router_data();
                 if (res && Object.keys(res).length > 0) {
                     updateUI(res);
