@@ -1554,6 +1554,21 @@ HTML_CONTENT = """
 HTML_CONTENT = HTML_CONTENT.replace("__APP_VERSION__", APP_VERSION)
 
 class Api:
+    def __init__(self):
+        self._update_progress = {
+            "active": False, "percent": 0, "downloaded": 0, "total": 0,
+            "speed_bps": 0, "eta_seconds": None, "status": "Siap", "error": None,
+        }
+        self._update_progress_lock = threading.Lock()
+
+    def get_update_progress(self):
+        with self._update_progress_lock:
+            return dict(self._update_progress)
+
+    def _set_update_progress(self, **values):
+        with self._update_progress_lock:
+            self._update_progress.update(values)
+
     def get_router_data(self):
         data = {}
         internet_ok = False
@@ -1813,13 +1828,40 @@ class Api:
                 kind_label = "EXE" if app_kind == "exe" else "Python"
                 return {"success": False, "error": f"Release ini tidak memiliki aset {kind_label} yang cocok; aplikasi tidak diubah."}
 
-            response = requests.get(
-                asset["browser_download_url"],
-                headers={"User-Agent": "IRA-ZTE-Live-Signal-Charts"},
-                timeout=(5, 60),
-            )
-            response.raise_for_status()
-            payload = response.content
+            self._set_update_progress(active=True, percent=0, downloaded=0, total=0,
+                                      speed_bps=0, eta_seconds=None, status="Menghubungkan ke server…", error=None)
+            started_at = time.monotonic()
+            downloaded = 0
+            chunks = []
+            try:
+                with requests.get(
+                    asset["browser_download_url"],
+                    headers={"User-Agent": "IRA-ZTE-Live-Signal-Charts"},
+                    timeout=(5, 60), stream=True,
+                ) as response:
+                    response.raise_for_status()
+                    total = int(response.headers.get("Content-Length") or 0)
+                    self._set_update_progress(total=total, status="Mengunduh update…")
+                    for chunk in response.iter_content(chunk_size=128 * 1024):
+                        if not chunk:
+                            continue
+                        chunks.append(chunk)
+                        downloaded += len(chunk)
+                        elapsed = max(time.monotonic() - started_at, 0.001)
+                        speed = downloaded / elapsed
+                        eta = max((total - downloaded) / speed, 0) if total > 0 and speed > 0 else None
+                        percent = min(downloaded * 100 / total, 100) if total > 0 else 0
+                        self._set_update_progress(
+                            downloaded=downloaded, total=total, speed_bps=round(speed),
+                            eta_seconds=round(eta) if eta is not None else None,
+                            percent=round(percent, 1), status="Mengunduh update…",
+                        )
+                payload = b"".join(chunks)
+                self._set_update_progress(active=False, percent=100, downloaded=downloaded,
+                                          total=total, status="Unduhan selesai, memvalidasi file…")
+            except Exception:
+                self._set_update_progress(active=False, status="Unduhan gagal.")
+                raise
 
             if app_kind == "python":
                 if len(payload) < 1000 or b"class Api" not in payload or b"HTML_CONTENT" not in payload:
@@ -1875,6 +1917,7 @@ class Api:
             )
             os._exit(0)
         except Exception as e:
+            self._set_update_progress(active=False, status="Pembaruan gagal.", error=f"{type(e).__name__}: {e}")
             return {"success": False, "error": f"Pembaruan gagal: {type(e).__name__}: {e}"}
 
     @staticmethod
