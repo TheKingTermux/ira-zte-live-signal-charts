@@ -1314,9 +1314,10 @@ HTML_CONTENT = """
             if (!Number.isFinite(step) || step <= 0) step = 1;
             let axisMin = Math.floor(minValue / step) * step;
             let axisMax = Math.ceil(maxValue / step) * step;
-            if (axisMin === axisMax) { axisMin -= step; axisMax += step; }
-            if (axisMin === minValue) axisMin -= step;
-            if (axisMax === maxValue) axisMax += step;
+            if (axisMin === axisMax) axisMin -= step;
+            // Add one tick above the strongest reading so labels remain readable
+            // when values fall between integer ticks (e.g. -21.5).
+            axisMax += step;
             chart.options.scales.y.min = Number(axisMin.toFixed(6));
             chart.options.scales.y.max = Number(axisMax.toFixed(6));
             chart.options.scales.y.ticks.stepSize = step;
