@@ -1717,10 +1717,23 @@ class Api:
         try:
             param = "-n" if platform.system().lower() == "windows" else "-c"
             command = ["ping", param, "4", host]
-            completed = subprocess.run(
-                command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, timeout=20, check=False, shell=False
-            )
+            # Prevent a console window flashing when ping is triggered from the
+            # GUI in both frozen EXE and regular Python launches on Windows.
+            run_options = {
+                "stdout": subprocess.PIPE,
+                "stderr": subprocess.STDOUT,
+                "text": True,
+                "timeout": 20,
+                "check": False,
+                "shell": False,
+            }
+            if platform.system().lower() == "windows":
+                run_options["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = 0
+                run_options["startupinfo"] = startupinfo
+            completed = subprocess.run(command, **run_options)
             output = completed.stdout or ""
             if completed.returncode == 0:
                 return {"success": True, "output": output}
