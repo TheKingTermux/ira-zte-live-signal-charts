@@ -690,9 +690,9 @@
             if (!Number.isFinite(step) || step <= 0) step = 1;
             let axisMin = Math.floor(minValue / step) * step;
             let axisMax = Math.ceil(maxValue / step) * step;
-            if (axisMin === axisMax) { axisMin -= step; axisMax += step; }
-            if (axisMin === minValue) axisMin -= step;
-            if (axisMax === maxValue) axisMax += step;
+            if (axisMin === axisMax) axisMin -= step;
+            // Add headroom so values between integer ticks remain easy to read.
+            axisMax += step;
             chart.options.scales.y.min = Number(axisMin.toFixed(6));
             chart.options.scales.y.max = Number(axisMax.toFixed(6));
             chart.options.scales.y.ticks.stepSize = step;
