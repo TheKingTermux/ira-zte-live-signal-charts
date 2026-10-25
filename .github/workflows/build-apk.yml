@@ -97,7 +97,7 @@ jobs:
         env:
           BUILD_VERSION: ${{ steps.version.outputs.value }}
           RUN_NUMBER: ${{ github.run_number }}
-        run: gradle --no-daemon assembleRelease -PandroidVersionCode="$RUN_NUMBER" -PandroidVersionName="$BUILD_VERSION"
+        run: gradle --no-daemon assembleRelease --stacktrace -PandroidVersionCode="$RUN_NUMBER" -PandroidVersionName="$BUILD_VERSION"
 
       - name: Rename APK
         shell: bash
