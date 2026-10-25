@@ -23,8 +23,8 @@ android {
         applicationId 'com.thekingtermux.iraztelivesignalcharts'
         minSdk 23
         targetSdk 28
-        versionCode (project.findProperty('androidVersionCode') ?: '1').toString().toInteger()
-        versionName (project.findProperty('androidVersionName') ?: '1.0').toString()
+        versionCode = (project.findProperty('androidVersionCode') ?: '1').toString().toInteger()
+        versionName = (project.findProperty('androidVersionName') ?: '1.0').toString()
     }
 
     buildTypes {
