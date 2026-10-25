@@ -11,6 +11,7 @@ jobs:
   announce:
     if: >-
       contains(fromJSON('["/build beta","/build stable"]'), github.event.comment.body) &&
+      github.event.comment.user.login == github.repository_owner &&
       github.event.comment.user.type != 'Bot' &&
       !endsWith(github.event.comment.user.login, '[bot]')
     runs-on: ubuntu-latest
@@ -271,6 +272,7 @@ jobs:
   report-failure:
     if: >-
       always() &&
+      github.event.comment.user.login == github.repository_owner &&
       contains(fromJSON('["/build beta","/build stable"]'), github.event.comment.body) &&
       (needs.prepare.result == 'failure' || needs.build-exe.result == 'failure' || needs.build-apk.result == 'failure' || needs.publish.result == 'failure')
     needs: [prepare, build-exe, build-apk, publish]
