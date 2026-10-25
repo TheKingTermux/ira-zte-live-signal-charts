@@ -8,6 +8,28 @@ permissions:
   contents: read
 
 jobs:
+  announce:
+    if: >-
+      contains(fromJSON('["/build beta","/build stable"]'), github.event.comment.body) &&
+      github.event.comment.user.login == github.repository_owner &&
+      github.event.comment.user.type != 'Bot' &&
+      !endsWith(github.event.comment.user.login, '[bot]')
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Announce build start
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const command = context.payload.comment.body.trim();
+            const mode = command === '/build stable' ? 'rilis stabil' : 'rilis beta';
+            await github.rest.issues.createComment({
+              owner, repo, issue_number: context.issue.number,
+              body: '⏳ **' + mode.charAt(0).toUpperCase() + mode.slice(1) + ' sedang dilakukan.** Bot sedang menyiapkan versi, membangun EXE dan APK, lalu menerbitkan release. Saya akan membalas lagi setelah proses selesai.'
+            });
+
   prepare:
     if: github.event.comment.user.login == github.repository_owner
     runs-on: ubuntu-latest
@@ -231,3 +253,70 @@ jobs:
             release-assets/*.apk
             router_app.py
           fail_on_unmatched_files: true
+      - name: Reply with release link
+        uses: actions/github-script@v7
+        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_TITLE: ${{ needs.prepare.outputs.title }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const tag = process.env.RELEASE_TAG;
+            const title = process.env.RELEASE_TITLE;
+            const url = 'https://github.com/' + owner + '/' + repo + '/releases/tag/' + encodeURIComponent(tag);
+            await github.rest.issues.createComment({
+              owner, repo, issue_number: context.issue.number,
+              body: '✅ **Build sudah selesai!** Rilis ' + title + ' berhasil diterbitkan. Silakan lihat dan unduh hasilnya di [GitHub Releases](' + url + ').'
+            });
+
+  report-failure:
+    if: >-
+      always() &&
+      github.event.comment.user.login == github.repository_owner &&
+      contains(fromJSON('["/build beta","/build stable"]'), github.event.comment.body) &&
+      (needs.prepare.result == 'failure' || needs.build-exe.result == 'failure' || needs.build-apk.result == 'failure' || needs.publish.result == 'failure')
+    needs: [prepare, build-exe, build-apk, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Reply that build failed
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            await github.rest.issues.createComment({
+              owner, repo, issue_number: context.issue.number,
+              body: '❌ **Build gagal.** Rilis belum berhasil diterbitkan. Periksa log workflow GitHub Actions untuk melihat penyebabnya; setelah diperbaiki, perintah build dapat dicoba kembali.'
+            });
+
+  help:
+    if: >-
+      github.event.comment.body != '' &&
+      github.event.comment.body == '/cmd' &&
+      github.event.comment.user.type != 'Bot' &&
+      !endsWith(github.event.comment.user.login, '[bot]')
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: read
+    steps:
+      - name: Reply with release commands
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const issueNumber = context.issue.number;
+            const body = [
+              '🤖 **Perintah Rilis IRA ZTE**',
+              '',
+              '- `/cmd` — menampilkan daftar perintah ini.',
+              '- `/build beta` — membuat rilis beta dari branch `dev`.',
+              '- `/build stable` — membuat rilis stabil dari branch `main`.',
+              '',
+              '**Catatan:** perintah build hanya dapat dijalankan oleh pemilik repositori. Kirim perintah sebagai komentar tersendiri.'
+            ].join('\\n');
+            await github.rest.issues.createComment({
+              owner, repo, issue_number: issueNumber, body
+            });
+
