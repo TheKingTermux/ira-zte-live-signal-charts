@@ -23,7 +23,7 @@ permissions:
 
 jobs:
   build:
-    name: Build Windows executable
+    name: Build Windows portable and installer
     runs-on: windows-latest
     steps:
       - name: Generate Bot Token
@@ -68,20 +68,37 @@ jobs:
           --icon build-assets/icons/IRA_ZTE_Live_Signal_Charts.ico
           --name IRA_ZTE_Live_Signal_Charts
           router_app.py
-      - name: Rename executable
+      - name: Name portable EXE
         shell: pwsh
         env:
           BUILD_VERSION: ${{ steps.version.outputs.value }}
         run: |
           $source = "dist/IRA_ZTE_Live_Signal_Charts.exe"
-          $target = "dist/IRA_ZTE_Live_Signal_Charts-$($env:BUILD_VERSION).exe"
+          $target = "dist/IRA_ZTE_Live_Signal_Charts-Portable-$($env:BUILD_VERSION).exe"
           if (!(Test-Path $source)) { throw "PyInstaller did not produce the expected EXE: $source" }
           Move-Item -LiteralPath $source -Destination $target
           Write-Host "Created $target"
-      - name: Upload EXE artifact
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+      - name: Build installer
+        shell: pwsh
+        env:
+          BUILD_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) {
+            $iscc = "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+          }
+          if (!(Test-Path $iscc)) { throw "Inno Setup compiler (ISCC.exe) was not found." }
+          & $iscc "/DMyAppVersion=$($env:BUILD_VERSION)" "installer/IRA_ZTE_Live_Signal_Charts.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed with exit code $LASTEXITCODE" }
+      - name: Upload Windows EXE artifacts
         uses: actions/upload-artifact@v4
         with:
           name: windows-exe-${{ steps.version.outputs.value }}
-          path: dist/IRA_ZTE_Live_Signal_Charts-${{ steps.version.outputs.value }}.exe
+          path: |
+            dist/IRA_ZTE_Live_Signal_Charts-Portable-${{ steps.version.outputs.value }}.exe
+            dist/IRA_ZTE_Live_Signal_Charts-Setup-${{ steps.version.outputs.value }}.exe
           if-no-files-found: error
           retention-days: 14
