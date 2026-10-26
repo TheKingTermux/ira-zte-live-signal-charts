@@ -560,6 +560,33 @@ HTML_CONTENT = """
     </div>
 
     <script>
+        // Akses penyimpanan yang aman: localStorage bisa melempar SecurityError
+        // di WebView (halaman dari string HTML). Tanpa ini satu error saja
+        // menghentikan inisialisasi dan status terus "Menghubungkan...".
+        const safeStorage = (function() {
+            const mem = {};
+            let ok = false;
+            try {
+                window.localStorage.setItem('__probe__', '1');
+                window.localStorage.removeItem('__probe__');
+                ok = true;
+            } catch (e) { ok = false; }
+            return {
+                getItem: function(k) {
+                    if (ok) { try { return window.localStorage.getItem(k); } catch (e) {} }
+                    return Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null;
+                },
+                setItem: function(k, v) {
+                    mem[k] = String(v);
+                    if (ok) { try { window.localStorage.setItem(k, String(v)); } catch (e) {} }
+                },
+                removeItem: function(k) {
+                    delete mem[k];
+                    if (ok) { try { window.localStorage.removeItem(k); } catch (e) {} }
+                }
+            };
+        })();
+
         Chart.defaults.color = '#64748b';
         Chart.defaults.font.family = 'ui-sans-serif, system-ui, sans-serif';
 
@@ -584,9 +611,14 @@ HTML_CONTENT = """
             requestAnimationFrame(() => resizeSettingsContent('tab-general', false));
         });
 
-        window.addEventListener('pywebviewready', function() {
+        let pywebviewInitialized = false;
+
+        function initializeDesktopBridge() {
+            if (pywebviewInitialized || !window.pywebview || !window.pywebview.api) return;
+            pywebviewInitialized = true;
+            try {
             const pingFreqSelect = document.getElementById('setting-ping-freq');
-            const savedPingFreq = localStorage.getItem('router_ping_freq');
+            const savedPingFreq = safeStorage.getItem('router_ping_freq');
             if (savedPingFreq === null || savedPingFreq === 'auto') {
                 pingFreqSelect.value = 'auto';
                 updatePingMonitorFrequency(false);
@@ -602,12 +634,30 @@ HTML_CONTENT = """
                     if (pingTitle) pingTitle.textContent = '📈 Ping Latency — setiap ' + (pingMonitorInterval / 1000) + ' detik';
                 } else {
                     pingFreqSelect.value = 'auto';
-                    localStorage.setItem('router_ping_freq', 'auto');
+                    safeStorage.setItem('router_ping_freq', 'auto');
                     updatePingMonitorFrequency(false);
                 }
             }
+            } catch (error) {
+                console.error('Gagal memuat pengaturan ping:', error);
+            }
             startPolling();
             startPingMonitor();
+        }
+
+        // The ready event can fire before this listener is attached in some WebView
+        // startup paths. Check the bridge as well, so desktop polling cannot remain
+        // forever on the initial "Menghubungkan..." state.
+        window.addEventListener('pywebviewready', initializeDesktopBridge);
+        document.addEventListener('DOMContentLoaded', () => {
+            initializeDesktopBridge();
+            let bridgeChecks = 0;
+            const checkBridge = () => {
+                if (pywebviewInitialized || bridgeChecks++ >= 30) return;
+                initializeDesktopBridge();
+                if (!pywebviewInitialized) setTimeout(checkBridge, 250);
+            };
+            checkBridge();
         });
 
         // Loop polling: tiap siklus membaca currentIntervalTime TERBARU.
@@ -1027,20 +1077,20 @@ HTML_CONTENT = """
         }
 
         function loadSettings() {
-            const savedTheme = localStorage.getItem('router_theme') || 'dark';
+            const savedTheme = safeStorage.getItem('router_theme') || 'dark';
             const allowedFrequencies = ['1000', '2000', '4000'];
-            const storedFreq = localStorage.getItem('router_freq') || '1000';
+            const storedFreq = safeStorage.getItem('router_freq') || '1000';
             const savedFreq = allowedFrequencies.includes(storedFreq) ? storedFreq : '1000';
 
             document.getElementById('setting-theme').value = savedTheme;
             changeTheme(savedTheme, false);
             document.getElementById('setting-freq').value = savedFreq;
             currentIntervalTime = Number.parseInt(savedFreq, 10);
-            document.getElementById('suppress-tower-popup').checked = localStorage.getItem('suppress_tower_popup') === 'true';
-            document.getElementById('suppress-internet-popup').checked = localStorage.getItem('suppress_internet_popup') === 'true';
-            const updateChannel = localStorage.getItem('update_channel') === 'beta' ? 'beta' : 'stable';
+            document.getElementById('suppress-tower-popup').checked = safeStorage.getItem('suppress_tower_popup') === 'true';
+            document.getElementById('suppress-internet-popup').checked = safeStorage.getItem('suppress_internet_popup') === 'true';
+            const updateChannel = safeStorage.getItem('update_channel') === 'beta' ? 'beta' : 'stable';
             document.getElementById('setting-update-channel').value = updateChannel;
-            document.getElementById('setting-auto-update-check').checked = localStorage.getItem('auto_update_check') !== 'false';
+            document.getElementById('setting-auto-update-check').checked = safeStorage.getItem('auto_update_check') !== 'false';
             document.getElementById('about-app-version').innerText = APP_VERSION_JS;
             if (document.getElementById('setting-auto-update-check').checked) {
                 setTimeout(() => checkForUpdates(true), 1800);
@@ -1052,8 +1102,8 @@ HTML_CONTENT = """
         let updateInstallInProgress = false;
 
         function saveUpdatePreferences() {
-            localStorage.setItem('update_channel', document.getElementById('setting-update-channel').value);
-            localStorage.setItem('auto_update_check', String(document.getElementById('setting-auto-update-check').checked));
+            safeStorage.setItem('update_channel', document.getElementById('setting-update-channel').value);
+            safeStorage.setItem('auto_update_check', String(document.getElementById('setting-auto-update-check').checked));
         }
 
         function setUpdateStatus(message, isError = false) {
@@ -1170,20 +1220,20 @@ HTML_CONTENT = """
         }
 
         function savePopupPreferences() {
-            localStorage.setItem('suppress_tower_popup', String(document.getElementById('suppress-tower-popup').checked));
-            localStorage.setItem('suppress_internet_popup', String(document.getElementById('suppress-internet-popup').checked));
+            safeStorage.setItem('suppress_tower_popup', String(document.getElementById('suppress-tower-popup').checked));
+            safeStorage.setItem('suppress_internet_popup', String(document.getElementById('suppress-internet-popup').checked));
         }
 
         function resetPopupPreferences() {
-            localStorage.removeItem('suppress_tower_popup');
-            localStorage.removeItem('suppress_internet_popup');
+            safeStorage.removeItem('suppress_tower_popup');
+            safeStorage.removeItem('suppress_internet_popup');
             document.getElementById('suppress-tower-popup').checked = false;
             document.getElementById('suppress-internet-popup').checked = false;
         }
 
         function shouldShowIssuePopup(kind) {
             const key = kind === 'tower' ? 'suppress_tower_popup' : 'suppress_internet_popup';
-            return localStorage.getItem(key) !== 'true';
+            return safeStorage.getItem(key) !== 'true';
         }
 
         function openModal(modalId, boxId) {
@@ -1251,13 +1301,13 @@ HTML_CONTENT = """
                 body.className = body.className.replace('bg-slate-100 text-slate-900', 'bg-slate-950 text-slate-100');
             }
             if (save) {
-                localStorage.setItem('router_theme', theme);
+                safeStorage.setItem('router_theme', theme);
             }
         }
 
         function changeFrequency(val) {
             currentIntervalTime = parseInt(val, 10) || 1000;
-            localStorage.setItem('router_freq', String(currentIntervalTime));
+            safeStorage.setItem('router_freq', String(currentIntervalTime));
             if (window.pywebview && window.pywebview.api) startPolling();
             updatePingMonitorFrequency();
         }
@@ -1408,7 +1458,7 @@ HTML_CONTENT = """
         const chartPing = createChart(document.getElementById('chartPing').getContext('2d'), '#e879f9');
         let pingMonitorTimer = null;
         let pingMonitorBusy = false;
-        let pingMonitorInterval = Number.parseInt(localStorage.getItem('router_ping_freq') || '2000', 10);
+        let pingMonitorInterval = Number.parseInt(safeStorage.getItem('router_ping_freq') || '2000', 10);
         if (!Number.isFinite(pingMonitorInterval) || pingMonitorInterval < 1000 || pingMonitorInterval > 3600000) pingMonitorInterval = 2000;
 
         function getStatusInfo(type, val, isConnected) {
@@ -1501,7 +1551,7 @@ HTML_CONTENT = """
                 interval = Math.round(Number(customInput.value) * 1000);
                 if (!Number.isFinite(interval) || interval < 1000 || interval > 3600000) return;
                 pingMonitorInterval = interval;
-                localStorage.setItem('router_ping_freq', String(interval));
+                safeStorage.setItem('router_ping_freq', String(interval));
                 const title = document.getElementById('ping-chart-title');
                 if (title) title.textContent = '📈 Ping Latency — setiap ' + (interval / 1000) + ' detik';
                 if (window.pywebview && window.pywebview.api) startPingMonitor();
@@ -1509,7 +1559,7 @@ HTML_CONTENT = """
             }
             customInput.classList.add('hidden');
             if (val === 'auto') {
-                localStorage.setItem('router_ping_freq', 'auto');
+                safeStorage.setItem('router_ping_freq', 'auto');
                 updatePingMonitorFrequency();
             }
         }
@@ -1753,9 +1803,9 @@ HTML_CONTENT = """
                 connection_history: Array.isArray(connectionHistory) ? connectionHistory.slice(0, 300) : [],
                 javascript_errors: diagnosticErrors.slice(-200),
                 settings: {
-                    router_poll_interval_ms: localStorage.getItem('router_freq') || 'default',
-                    ping_interval_ms: localStorage.getItem('router_ping_freq') || 'auto',
-                    theme: localStorage.getItem('router_theme') || 'default'
+                    router_poll_interval_ms: safeStorage.getItem('router_freq') || 'default',
+                    ping_interval_ms: safeStorage.getItem('router_ping_freq') || 'auto',
+                    theme: safeStorage.getItem('router_theme') || 'default'
                 },
                 note: 'Diagnostic export excludes passwords, cookies, tokens, and router credentials.'
             };
@@ -1784,25 +1834,36 @@ HTML_CONTENT = """
         }
 
         async function fetchTelemetry() {
+            const connEl = document.getElementById('status-conn');
+            const setConnectionStatus = (message, failed = false) => {
+                connEl.innerText = message;
+                connEl.className = failed
+                    ? "text-[11px] font-medium bg-red-950/40 border border-red-500/30 text-red-400 px-3 py-1 rounded-xl shadow-inner"
+                    : "text-[11px] font-medium bg-slate-900 border border-slate-800 px-3 py-1 rounded-xl text-slate-400 shadow-inner";
+            };
             try {
                 if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.get_router_data !== 'function') {
-                    throw new Error('Bridge pywebview belum siap');
+                    throw new Error('Bridge pywebview belum siap / API get_router_data tidak tersedia');
                 }
-                let res = await window.pywebview.api.get_router_data();
-                if (res && Object.keys(res).length > 0) {
+                // A broken WebView bridge can leave a Promise pending forever. Race it against
+                // a timeout so the UI reports the failure and polling can retry on the next tick.
+                const res = await Promise.race([
+                    window.pywebview.api.get_router_data(),
+                    new Promise((_, reject) => setTimeout(
+                        () => reject(new Error('Timeout menunggu respons API desktop (15 detik)')),
+                        15000
+                    ))
+                ]);
+                if (res && typeof res === 'object' && Object.keys(res).length > 0) {
                     updateUI(res);
                 } else {
                     updateUI({ signalbar: "0", internet_ok: false });
-                    const connEl = document.getElementById('status-conn');
-                    connEl.innerText = 'Router tidak merespons';
-                    connEl.className = "text-[11px] font-medium bg-red-950/40 border border-red-500/30 text-red-400 px-3 py-1 rounded-xl shadow-inner";
+                    setConnectionStatus('Router tidak merespons', true);
                 }
             } catch (err) {
                 console.error("Gagal ambil data:", err);
                 updateUI({ signalbar: "0", internet_ok: false });
-                const connEl = document.getElementById('status-conn');
-                connEl.innerText = "Terputus...";
-                connEl.className = "text-[11px] font-medium bg-red-950/40 border border-red-500/30 text-red-400 px-3 py-1 rounded-xl shadow-inner";
+                setConnectionStatus('Gagal membaca telemetry: ' + String(err?.message || err), true);
             }
         }
     </script>
@@ -2046,14 +2107,19 @@ class Api:
             return str(asset.get("name") or "").strip()
 
         if kind == "exe":
-            # The EXE workflow publishes versioned names such as
-            # IRA_ZTE_Live_Signal_Charts-1.2.3.exe.
+            # The EXE workflow publishes BOTH a Portable EXE and a Setup installer.
+            # Only the portable EXE can be swapped in place by the updater; the
+            # installer must never replace the running executable.
             matches = [
                 asset for asset in assets
                 if isinstance(asset, dict)
                 and name_of(asset).lower().endswith(".exe")
                 and "ira_zte_live_signal_charts" in name_of(asset).lower()
+                and "setup" not in name_of(asset).lower()
+                and "installer" not in name_of(asset).lower()
             ]
+            # Prefer the explicit "-Portable-" asset, then legacy single-EXE naming.
+            matches.sort(key=lambda asset: 0 if "portable" in name_of(asset).lower() else 1)
         elif kind == "python":
             allowed = {
                 "router_app.py",
@@ -2131,6 +2197,11 @@ class Api:
                 kind_label = "EXE" if app_kind == "exe" else "Python"
                 return {"success": False, "error": f"Release ini tidak memiliki aset {kind_label} yang cocok; aplikasi tidak diubah."}
 
+            if app_kind == "exe":
+                writable, reason = self._exe_dir_writable()
+                if not writable:
+                    return {"success": False, "error": reason}
+
             self._set_update_progress(active=True, percent=0, downloaded=0, total=0,
                                       speed_bps=0, eta_seconds=None, status="Menghubungkan ke server…", error=None)
             started_at = time.monotonic()
@@ -2201,27 +2272,56 @@ class Api:
             temp_exe = current_exe.with_name(current_exe.stem + ".update.exe")
             temp_exe.write_bytes(payload)
             import subprocess
-            import tempfile
             batch_path = current_exe.with_name(current_exe.stem + "_update.bat")
-            batch_path.write_text(
-                "@echo off\\r\\n"
-                "timeout /t 2 /nobreak >nul\\r\\n"
-                f'move /y "{temp_exe}" "{current_exe}" >nul\\r\\n'
-                f'if errorlevel 1 exit /b 1\\r\\n'
-                f'start "" "{current_exe}"\\r\\n'
-                f'del "%~f0"\\r\\n',
-                encoding="utf-8",
-            )
+            # Real CRLF line breaks are required. The previous version wrote the literal
+            # text "\r\n", so cmd.exe saw one broken line, never replaced the EXE and
+            # never relaunched the app after it exited.
+            batch_lines = [
+                "@echo off",
+                "set TRIES=0",
+                ":retry",
+                "ping 127.0.0.1 -n 3 >nul",
+                f'move /y "{temp_exe}" "{current_exe}" >nul 2>&1',
+                "if not errorlevel 1 goto done",
+                "set /a TRIES+=1",
+                "if %TRIES% lss 20 goto retry",
+                "exit /b 1",
+                ":done",
+                "set PYINSTALLER_RESET_ENVIRONMENT=1",
+                "set _MEIPASS2=",
+                f'start "" "{current_exe}"',
+                'del "%~f0"',
+            ]
+            batch_path.write_text("\r\n".join(batch_lines) + "\r\n", encoding="utf-8")
+            # Do not leak PyInstaller's onefile temp-dir variables into the relaunched app.
+            child_env = {k: v for k, v in os.environ.items() if not k.startswith(("_MEI", "_PYI"))}
+            child_env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
             subprocess.Popen(
                 ["cmd.exe", "/c", str(batch_path)],
                 cwd=str(current_exe.parent),
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 close_fds=True,
+                env=child_env,
             )
             os._exit(0)
         except Exception as e:
             self._set_update_progress(active=False, status="Pembaruan gagal.", error=f"{type(e).__name__}: {e}")
             return {"success": False, "error": f"Pembaruan gagal: {type(e).__name__}: {e}"}
+
+    @staticmethod
+    def _exe_dir_writable():
+        """Check that the EXE can be replaced in place (fails in Program Files without admin)."""
+        exe_dir = Path(sys.executable).parent
+        try:
+            probe = exe_dir / ".ira_write_test.tmp"
+            probe.write_bytes(b"ok")
+            probe.unlink()
+            return True, ""
+        except OSError as e:
+            return False, (
+                f"Folder instalasi ({exe_dir}) tidak bisa ditulis tanpa hak admin ({type(e).__name__}). "
+                "Pasang ulang aplikasi dengan installer terbaru (per-pengguna) atau pindahkan EXE portable ke folder biasa."
+            )
 
     @staticmethod
     def _restart_after_update(script_path):
