@@ -10,7 +10,7 @@ Aplikasi desktop untuk memantau telemetri sinyal 5G dari router **ZTE MC8501** s
 >
 > Proyek ini merupakan proyek **independen untuk eksperimen, pemantauan, dan penggunaan pribadi**. Repositori ini **tidak berafiliasi, tidak disponsori, tidak didukung, tidak dikelola, dan tidak mewakili** merek, perusahaan, badan usaha, penyedia layanan internet, atau organisasi mana pun.
 >
-> Secara khusus, proyek ini **bukan produk resmi, bukan aplikasi resmi, dan bukan bagian dari IRA Internet Rakyat maupun PT. Telemedia Komunikasi Pratama**. Penyebutan nama “IRA”, “Internet Rakyat”, “ZTE”, “MC8501”, atau nama dan merek lain di dalam repositori ini hanya digunakan untuk menjelaskan konteks teknis, perangkat yang kompatibel, atau lingkungan pengujian. Penyebutan tersebut tidak menyatakan adanya hubungan bisnis, kemitraan, dukungan, persetujuan, atau pengesahan dari pemilik merek atau pihak terkait.
+> Secara khusus, proyek ini **bukan produk resmi, bukan aplikasi resmi, dan bukan bagian dari IRA (Internet Rakyat), ZTE Corporation maupun PT. Telemedia Komunikasi Pratama**. Penyebutan nama “IRA”, “Internet Rakyat”, “ZTE”, “MC8501”, atau nama dan merek lain di dalam repositori ini hanya digunakan untuk menjelaskan konteks teknis, perangkat yang kompatibel, atau lingkungan pengujian. Penyebutan tersebut tidak menyatakan adanya hubungan bisnis, kemitraan, dukungan, persetujuan, atau pengesahan dari pemilik merek atau pihak terkait.
 >
 > Aplikasi ini dibuat dan dipelihara secara mandiri oleh pengembang repositori ini. Aplikasi ini tidak dimaksudkan untuk menjadi kanal dukungan pelanggan, alat resmi penyedia layanan, aplikasi konfigurasi resmi, atau pengganti perangkat lunak maupun layanan yang disediakan oleh produsen perangkat dan penyedia layanan internet.
 >
