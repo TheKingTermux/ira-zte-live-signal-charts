@@ -169,7 +169,7 @@ Ambang batas tersebut merupakan acuan bawaan untuk membantu membaca kondisi siny
 
 ## Status proyek
 
-Proyek ini terutama ditujukan untuk pemantauan pribadi router ZTE MC8501. Perubahan firmware dapat memengaruhi endpoint internal maupun kolom telemetri yang dikembalikan perangkat. Proyek ini dikelola secara independen dan bukan perangkat lunak resmi dari produsen router atau penyedia layanan internet.
+Proyek ini terutama ditujukan untuk pemantauan pribadi router IRA (Internet Rakyat) ZTE MC8501. Perubahan firmware dapat memengaruhi endpoint internal maupun kolom telemetri yang dikembalikan perangkat. Proyek ini dikelola secara independen dan bukan perangkat lunak resmi dari produsen router atau penyedia layanan internet.
 
 ## Lisensi dan penggunaan ulang
 
@@ -177,4 +177,4 @@ Repositori ini belum menetapkan lisensi perangkat lunak. Sampai lisensi ditambah
 
 ---
 
-Jika menemukan masalah atau ingin mengusulkan perubahan, silakan gunakan [Issues](https://github.com/TheKingTermux/ira-zte-live-signal-charts/issues). Harap diingat bahwa repositori ini merupakan proyek independen; kanal tersebut bukan layanan dukungan resmi IRA Internet Rakyat, PT. Telemedia Komunikasi Pratama, atau ZTE.
+Jika menemukan masalah atau ingin mengusulkan perubahan, silakan gunakan [Issues](https://github.com/TheKingTermux/ira-zte-live-signal-charts/issues). Harap diingat bahwa repositori ini merupakan proyek independen; kanal tersebut bukan layanan dukungan resmi IRA (Internet Rakyat), PT. Telemedia Komunikasi Pratama, atau ZTE Corporation.
