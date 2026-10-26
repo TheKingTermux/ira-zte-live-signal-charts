@@ -77,6 +77,12 @@ HTML_CONTENT = """
         @media (prefers-reduced-motion: reduce) {
             #settingsBox, #settingsContent, .tab-pane { transition-duration: 0.01ms; }
         }
+        /* Mode terang: kartu tetap gelap (hampir solid) agar semua nilai terbaca;
+           elemen yang langsung berada di atas latar terang diberi warna gelap. */
+        .theme-light #app-title { color: #0e7490; }
+        .theme-light #app-subtitle { color: #475569; }
+        .theme-light .card-bg { background-color: rgb(15 23 42 / 0.96); }
+        .theme-light #status-conn { background-color: #0f172a !important; border-color: #1e293b !important; }
     </style>
 </head>
 <body id="app-body" class="bg-slate-950 text-slate-100 h-screen overflow-hidden p-4 flex flex-col justify-between select-none relative">
@@ -84,14 +90,14 @@ HTML_CONTENT = """
     <!-- Header -->
     <header class="flex justify-between items-center pb-2 border-b border-slate-800 gap-2 shrink-0 relative">
         <div>
-            <h1 class="text-lg font-black tracking-wider text-cyan-400 flex items-center gap-2">
+            <h1 id="app-title" class="text-lg font-black tracking-wider text-cyan-400 flex items-center gap-2">
                 <span class="relative flex h-2.5 w-2.5">
                   <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
                   <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-cyan-500"></span>
                 </span>
                 IRA ZTE MC8501 5G LIVE SIGNAL CHARTS
             </h1>
-            <p class="text-[10px] text-slate-400">Real-time Telemetry & Smart Network Diagnostic Dashboard</p>
+            <p id="app-subtitle" class="text-[10px] text-slate-400">Real-time Telemetry & Smart Network Diagnostic Dashboard</p>
         </div>
         <div class="flex items-center gap-2">
             <!-- Settings Button -->
@@ -127,7 +133,7 @@ HTML_CONTENT = """
                 <div class="w-48 shrink-0 flex flex-col justify-center">
                     <div class="flex items-center justify-between">
                         <span class="text-[11px] font-semibold text-cyan-400 uppercase tracking-wider">5G RSRP</span>
-                        <div id="status-rsrp" class="flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-[10px] font-semibold">
+                        <div id="status-rsrp" class="flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-[10px] font-semibold text-slate-300">
                             <span class="h-1.5 w-1.5 rounded-full bg-slate-500" id="dot-rsrp"></span>
                             <span id="text-rsrp">Memuat</span>
                         </div>
@@ -145,7 +151,7 @@ HTML_CONTENT = """
                 <div class="w-48 shrink-0 flex flex-col justify-center">
                     <div class="flex items-center justify-between">
                         <span class="text-[11px] font-semibold text-cyan-400 uppercase tracking-wider">5G RSSI</span>
-                        <div id="status-rssi" class="flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-[10px] font-semibold">
+                        <div id="status-rssi" class="flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-[10px] font-semibold text-slate-300">
                             <span class="h-1.5 w-1.5 rounded-full bg-slate-500" id="dot-rssi"></span>
                             <span id="text-rssi">Memuat</span>
                         </div>
@@ -163,7 +169,7 @@ HTML_CONTENT = """
                 <div class="w-48 shrink-0 flex flex-col justify-center">
                     <div class="flex items-center justify-between">
                         <span class="text-[11px] font-semibold text-cyan-400 uppercase tracking-wider">5G RSRQ</span>
-                        <div id="status-rsrq" class="flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-[10px] font-semibold">
+                        <div id="status-rsrq" class="flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-[10px] font-semibold text-slate-300">
                             <span class="h-1.5 w-1.5 rounded-full bg-slate-500" id="dot-rsrq"></span>
                             <span id="text-rsrq">Memuat</span>
                         </div>
@@ -181,7 +187,7 @@ HTML_CONTENT = """
                 <div class="w-48 shrink-0 flex flex-col justify-center">
                     <div class="flex items-center justify-between">
                         <span class="text-[11px] font-semibold text-cyan-400 uppercase tracking-wider">5G SINR / SNR</span>
-                        <div id="status-sinr" class="flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-[10px] font-semibold">
+                        <div id="status-sinr" class="flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-[10px] font-semibold text-slate-300">
                             <span class="h-1.5 w-1.5 rounded-full bg-slate-500" id="dot-sinr"></span>
                             <span id="text-sinr">Memuat</span>
                         </div>
@@ -201,7 +207,7 @@ HTML_CONTENT = """
                 <div class="w-48 shrink-0 flex flex-col justify-center">
                     <div class="flex items-center justify-between">
                         <span class="text-[11px] font-semibold text-cyan-400 uppercase tracking-wider">INTERNET PING</span>
-                        <div id="status-ping" class="flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-[10px] font-semibold">
+                        <div id="status-ping" class="flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-[10px] font-semibold text-slate-300">
                             <span class="h-1.5 w-1.5 rounded-full bg-slate-500" id="dot-ping"></span>
                             <span id="text-ping">Menunggu</span>
                         </div>
@@ -342,17 +348,17 @@ HTML_CONTENT = """
                         </select>
                     </div>
                     <div class="rounded-xl border border-slate-800 bg-slate-950/50 p-3 space-y-2">
-                        <div class="text-[11px] font-semibold text-slate-300">Notifikasi Gangguan Jaringan</div>
+                        <div class="text-[11px] font-semibold text-slate-300">Pop-up Gangguan Jaringan</div>
                         <label class="flex items-center gap-2 text-[11px] text-slate-300">
                             <input id="suppress-tower-popup" type="checkbox" onchange="savePopupPreferences()" class="accent-cyan-500">
-                            Sembunyikan notifikasi saat tower bermasalah
+                            Sembunyikan pop-up saat tower bermasalah
                         </label>
                         <label class="flex items-center gap-2 text-[11px] text-slate-300">
                             <input id="suppress-internet-popup" type="checkbox" onchange="savePopupPreferences()" class="accent-cyan-500">
-                            Sembunyikan notifikasi saat internet bermasalah
+                            Sembunyikan pop-up saat internet bermasalah
                         </label>
                         <button onclick="animateButton(this); resetPopupPreferences()" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-semibold px-3 py-2 rounded-lg transition-all">Reset Notifikasi Gangguan</button>
-                        <p class="text-[10px] text-slate-500">Reset mengaktifkan kembali notifikasi gangguan tower dan internet. Notifikasi koneksi pulih tetap aktif.</p>
+                        <p class="text-[10px] text-slate-500">Pop-up gangguan tampil secara default. Banner, suara, dan riwayat tetap aktif walau pop-up disembunyikan. Reset menampilkan kembali pop-up gangguan tower dan internet.</p>
                     </div>
                     <div>
                         <label class="text-[11px] font-semibold text-slate-300 block mb-1">Frekuensi Update Data (Refresh Rate)</label>
@@ -522,10 +528,16 @@ HTML_CONTENT = """
 
     <!-- Disconnected Alert Popup Modal (Animated with Recheck Button) -->
     <div id="disconnectModal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm opacity-0 pointer-events-none modal-transition">
-        <div id="disconnectBox" class="bg-slate-900 border-2 border-orange-500/80 p-6 rounded-2xl max-w-md w-full mx-4 shadow-2xl shadow-orange-500/20 text-slate-100 transform scale-95 transition-transform duration-250">
+        <div id="disconnectBox" class="bg-slate-900 border-2 border-orange-500/80 p-6 rounded-2xl max-w-md w-full mx-4 max-h-[94vh] overflow-y-auto shadow-2xl shadow-orange-500/20 text-slate-100 transform scale-95 transition-transform duration-250">
             <div class="w-12 h-12 bg-orange-500/10 text-orange-500 rounded-xl flex items-center justify-center mx-auto mb-3 text-2xl font-bold animate-bounce">⚠️</div>
             <h3 id="modal-title-disc" class="text-lg font-bold text-orange-400 text-center mb-1">KONEKSI TOWER TERPUTUS!</h3>
-            <p id="modal-desc-disc" class="text-xs text-slate-300 text-center mb-4">Sinyal bar terdeteksi 0 atau terputus dari jaringan utama.</p>
+            <p id="modal-desc-disc" class="text-xs text-slate-300 text-center mb-1">Sinyal bar terdeteksi 0 atau terputus dari jaringan utama.</p>
+            <p id="disc-elapsed" class="text-[10px] text-slate-500 text-center mb-2"></p>
+            <div id="disc-details" class="max-h-[34vh] overflow-y-auto pr-1 mb-3 text-left"></div>
+            <label class="flex items-center justify-center gap-2 text-[11px] text-slate-300 mb-3 cursor-pointer select-none">
+                <input id="disc-suppress-checkbox" type="checkbox" onchange="onIssuePopupSuppressChange(this.checked)" class="accent-cyan-500">
+                Jangan tampilkan pop-up ini lagi
+            </label>
             <div class="space-y-2">
                 <button onclick="animateButton(this); manualReconnectCheck()" id="btn-recheck" class="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-semibold py-2.5 px-4 rounded-xl text-xs shadow-lg transition-all active:scale-95">🔄 Uji Ulang Koneksi Internet</button>
                 <button onclick="animateButton(this); closeDisconnectModal()" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold py-2 px-4 rounded-xl text-xs transition-all active:scale-95">Tutup Peringatan</button>
@@ -1232,8 +1244,210 @@ HTML_CONTENT = """
         }
 
         function shouldShowIssuePopup(kind) {
+            // Default: SELALU tampil. Disembunyikan hanya jika pengguna mencentang
+            // "Jangan tampilkan pop-up ini lagi" (atau opsi yang sama di Pengaturan).
             const key = kind === 'tower' ? 'suppress_tower_popup' : 'suppress_internet_popup';
             return safeStorage.getItem(key) !== 'true';
+        }
+
+        let activeIssuePopupKind = null;
+
+        // ===== Deskripsi gangguan & perkiraan penyebab =====
+        // Aplikasi tidak bisa mengetahui penyebab pastinya. Perkiraan dibuat dari pola
+        // sinyal sebelum gangguan (melemah bertahap vs putus mendadak) dan dari ping
+        // ke Cloudflare, lalu ditampilkan sebagai "kemungkinan", bukan diagnosis.
+        const TOWER_CAUSES = {
+            weather: { icon: '🌧️', title: 'Cuaca ekstrem', desc: 'Hujan lebat, badai, atau petir meredam sinyal dan bisa mengganggu perangkat tower.' },
+            overheat: { icon: '🌡️', title: 'Pemancar overheat', desc: 'Perangkat pemancar (BTS) terlalu panas, misalnya pendingin gagal, lalu menurunkan daya atau mati sementara.' },
+            power: { icon: '⚡', title: 'Listrik atau baterai tower bermasalah', desc: 'Pemadaman listrik di lokasi tower dan baterai cadangan sudah habis.' },
+            backhaul: { icon: '🔌', title: 'Kabel backhaul putus', desc: 'Jalur kabel atau fiber dari tower ke jaringan operator terputus, misalnya karena galian, pohon tumbang, atau kabel rusak.' },
+            maintenance: { icon: '🛠️', title: 'Pemeliharaan atau upgrade tower', desc: 'Operator sedang maintenance atau upgrade jaringan. Biasanya sementara dan sering dilakukan dini hari.' },
+            congestion: { icon: '👥', title: 'Tower terlalu padat', desc: 'Terlalu banyak pengguna di satu sel sehingga router sulit mempertahankan koneksi.' },
+            handover: { icon: '🔁', title: 'Perpindahan atau perubahan sel', desc: 'Router berpindah ke sel lain atau operator mengubah konfigurasi sel sehingga koneksi sempat hilang.' },
+            local: { icon: '📡', title: 'Masalah di sisi router atau antena', desc: 'Posisi router kurang baik, kabel atau konektor antena longgar, atau router perlu di-restart.' }
+        };
+        const INTERNET_CAUSES = {
+            testserver: { icon: '🧪', title: 'Server uji tidak terjangkau (alarm palsu)', desc: 'Aplikasi menguji lewat 1.1.1.1. Jika situs lain masih bisa dibuka, internet sebenarnya normal.' },
+            quota: { icon: '📶', title: 'Kuota habis atau masa aktif berakhir', desc: 'Kartu masih tersambung ke tower, tetapi operator memblokir data.' },
+            dns: { icon: '🌐', title: 'Gangguan DNS operator', desc: 'Nama situs gagal diterjemahkan ke alamat sehingga internet terasa mati padahal sinyal ada.' },
+            upstream: { icon: '🔌', title: 'Jalur internet operator terganggu', desc: 'Gangguan di backbone atau gateway operator di luar tower, misalnya kabel atau perangkat jaringan inti.' },
+            apn: { icon: '⚙️', title: 'Pengaturan APN atau profil data bermasalah', desc: 'Biasanya muncul setelah pengaturan router diubah atau di-reset.' },
+            congestion: { icon: '👥', title: 'Jaringan padat atau sinyal lemah', desc: 'Banyak paket data hilang sehingga tes gagal meskipun tower tersambung.' }
+        };
+        const ISSUE_TIPS = {
+            tower: [
+                'Tunggu 3-5 menit; banyak gangguan tower pulih sendiri.',
+                'Cek apakah HP lain di lokasi yang sama juga kehilangan sinyal.',
+                'Restart router: cabut listrik 30 detik lalu nyalakan lagi.',
+                'Pindahkan router atau antena ke dekat jendela atau tempat yang lebih tinggi.',
+                'Jika lebih dari 30 menit, hubungi operator dan tanyakan gangguan di area Anda.'
+            ],
+            internet: [
+                'Cek sisa kuota dan masa aktif kartu.',
+                'Coba buka situs lain; jika bisa, kemungkinan hanya server uji yang bermasalah.',
+                'Restart router: cabut listrik 30 detik lalu nyalakan lagi.',
+                'Coba ganti DNS perangkat ke 8.8.8.8 atau 9.9.9.9.',
+                'Jika berlangsung lama, hubungi operator.'
+            ]
+        };
+        const signalHistory = [];
+        let lastPingOkAt = 0;
+        const issueStartedAt = { tower: null, internet: null };
+        const issueDiagnosis = { tower: null, internet: null };
+
+        function recordSignalSample(data) {
+            const rsrp = parseFloat(data.nr5g_rsrp);
+            if (!Number.isFinite(rsrp) || rsrp === 0) return;
+            const sinr = parseFloat(data.nr5g_snr);
+            const rsrq = parseFloat(data.nr5g_rsrq);
+            signalHistory.push({
+                rsrp: rsrp,
+                sinr: Number.isFinite(sinr) ? sinr : null,
+                rsrq: Number.isFinite(rsrq) ? rsrq : null,
+                pci: data.nr5g_pci || null
+            });
+            if (signalHistory.length > 15) signalHistory.shift();
+        }
+
+        function rankCauses(causeMap, score, summary, note) {
+            const keys = Object.keys(score).filter(k => score[k] > 0).sort((a, b) => score[b] - score[a]).slice(0, 5);
+            const causes = keys.map((k, i) => Object.assign({ key: k, likely: i < 2 && score[k] >= 3 }, causeMap[k]));
+            return { summary: summary, note: note, causes: causes };
+        }
+
+        function diagnoseTower() {
+            const n = signalHistory.length;
+            const last = n ? signalHistory[n - 1] : null;
+            const first = n ? signalHistory[0] : null;
+            const score = { weather: 1, overheat: 0, power: 0, backhaul: 1, maintenance: 0, congestion: 0, handover: 0, local: 1 };
+            let summary, note = '';
+            if (!last) {
+                summary = 'Tidak ada data sinyal sebelum terputus, jadi penyebab tidak bisa diperkirakan. Berikut kemungkinan yang umum terjadi.';
+            } else {
+                const weak = last.rsrp <= -105 || (last.sinr !== null && last.sinr <= 3) || (last.rsrq !== null && last.rsrq <= -16);
+                const falling = n >= 4 && (first.rsrp - last.rsrp) >= 8;
+                const detail = 'RSRP ' + last.rsrp + ' dBm' + (last.sinr !== null ? ', SINR ' + last.sinr + ' dB' : '');
+                if (weak || falling) {
+                    score.weather += 3;
+                    score.local += last.rsrp <= -115 ? 2 : 1;
+                    if (last.sinr !== null && last.sinr <= 5) score.congestion += 2;
+                    summary = 'Sinyal sudah melemah sebelum terputus (' + detail + '). Pola ini lebih sering terjadi karena cuaca, halangan, atau tower padat.';
+                    note = 'Perkiraan: sinyal melemah sebelum putus (cuaca, halangan, atau tower padat).';
+                } else {
+                    score.backhaul += 3;
+                    score.power += 2;
+                    score.overheat += 2;
+                    score.maintenance += 1;
+                    summary = 'Sinyal masih kuat sebelum terputus (' + detail + '). Putus mendadak seperti ini biasanya masalah di sisi tower atau operator.';
+                    note = 'Perkiraan: putus mendadak saat sinyal kuat (sisi tower atau operator).';
+                }
+                const pcis = new Set(signalHistory.map(x => x.pci).filter(Boolean));
+                if (pcis.size > 1) score.handover += 2;
+            }
+            const hour = new Date().getHours();
+            if (hour < 5) score.maintenance += 2;
+            if (hour >= 11 && hour < 16) score.overheat += 1;
+            return rankCauses(TOWER_CAUSES, score, summary, note);
+        }
+
+        function diagnoseInternet() {
+            const score = { quota: 2, dns: 2, upstream: 2, apn: 1, congestion: 0, testserver: 0 };
+            const last = signalHistory.length ? signalHistory[signalHistory.length - 1] : null;
+            let summary, note;
+            if (Date.now() - lastPingOkAt < 10000) {
+                score.testserver += 5;
+                summary = 'Tes ke 1.1.1.1 gagal, tetapi ping ke Cloudflare masih berhasil. Kemungkinan ini alarm palsu karena 1.1.1.1 terblokir, bukan internet mati.';
+                note = 'Perkiraan: ping Cloudflare masih berhasil (kemungkinan alarm palsu).';
+            } else {
+                score.upstream += 1;
+                summary = 'Tower tersambung, tetapi data internet tidak mengalir.';
+                note = 'Perkiraan: data tidak mengalir meski tower tersambung.';
+            }
+            if (last && (last.rsrp <= -105 || (last.sinr !== null && last.sinr <= 5))) {
+                score.congestion += 3;
+                summary += ' Kualitas sinyal sedang lemah sehingga banyak paket gagal.';
+            }
+            return rankCauses(INTERNET_CAUSES, score, summary, note);
+        }
+
+        function getIssueDiagnosis(kind) {
+            if (!issueDiagnosis[kind]) issueDiagnosis[kind] = kind === 'tower' ? diagnoseTower() : diagnoseInternet();
+            return issueDiagnosis[kind];
+        }
+
+        function issueNote(kind) {
+            issueDiagnosis[kind] = null;
+            return getIssueDiagnosis(kind).note;
+        }
+
+        function renderIssueDetails(kind) {
+            const box = document.getElementById('disc-details');
+            if (!box) return;
+            const diag = getIssueDiagnosis(kind);
+            const parts = [];
+            parts.push('<div class="text-[11px] text-slate-300 bg-slate-950/60 border border-slate-800 rounded-lg p-2 mb-2">' + diag.summary + '</div>');
+            parts.push('<div class="text-[10px] font-bold text-orange-300 uppercase tracking-wider mb-1">Kemungkinan penyebab</div>');
+            diag.causes.forEach(c => {
+                parts.push('<div class="flex gap-2 py-1.5 border-b border-slate-800/60 last:border-0">'
+                    + '<div class="text-base leading-none">' + c.icon + '</div>'
+                    + '<div class="min-w-0"><div class="text-[11px] font-semibold text-slate-100">' + c.title
+                    + (c.likely ? ' <span class="ml-1 text-[9px] font-bold text-orange-300 bg-orange-500/15 border border-orange-500/40 rounded px-1">Paling mungkin</span>' : '')
+                    + '</div><div class="text-[10px] text-slate-400">' + c.desc + '</div></div></div>');
+            });
+            parts.push('<div class="text-[10px] font-bold text-cyan-300 uppercase tracking-wider mt-2 mb-1">Yang bisa dicoba</div>');
+            parts.push('<ul class="text-[10px] text-slate-300 list-disc pl-4 space-y-0.5">' + ISSUE_TIPS[kind].map(t => '<li>' + t + '</li>').join('') + '</ul>');
+            parts.push('<p class="text-[9px] text-slate-500 mt-2">Perkiraan otomatis dari pola sinyal sebelum gangguan, bukan diagnosis pasti. Hanya operator yang bisa memastikan penyebabnya.</p>');
+            box.innerHTML = parts.join('');
+            box.scrollTop = 0;
+        }
+
+        function refreshIssueElapsed() {
+            const kind = activeIssuePopupKind;
+            const el = document.getElementById('disc-elapsed');
+            if (!kind || !el || !issueStartedAt[kind]) return;
+            const sec = Math.max(0, Math.floor((Date.now() - issueStartedAt[kind]) / 1000));
+            const mm = Math.floor(sec / 60);
+            el.innerText = 'Berlangsung: ' + (mm > 0 ? mm + ' mnt ' : '') + (sec % 60) + ' dtk'
+                + (sec >= 600 ? ' - sudah cukup lama, sebaiknya hubungi operator.' : '');
+        }
+
+        function showIssuePopup(kind) {
+            activeIssuePopupKind = kind;
+            const isTower = kind === 'tower';
+            document.getElementById('modal-title-disc').innerText = isTower ? 'KONEKSI TOWER TERPUTUS!' : 'INTERNET BERMASALAH!';
+            document.getElementById('modal-desc-disc').innerText = isTower
+                ? 'Sinyal tower tidak terdeteksi atau terputus dari jaringan utama.'
+                : 'Tower tersambung, tetapi akses internet gagal.';
+            const checkbox = document.getElementById('disc-suppress-checkbox');
+            if (checkbox) checkbox.checked = false;
+            renderIssueDetails(kind);
+            refreshIssueElapsed();
+            openModal('disconnectModal', 'disconnectBox');
+        }
+
+        function onIssuePopupSuppressChange(checked) {
+            if (!activeIssuePopupKind) return;
+            const isTower = activeIssuePopupKind === 'tower';
+            safeStorage.setItem(isTower ? 'suppress_tower_popup' : 'suppress_internet_popup', String(checked));
+            // Sinkronkan dengan checkbox di Pengaturan.
+            const settingCheckbox = document.getElementById(isTower ? 'suppress-tower-popup' : 'suppress-internet-popup');
+            if (settingCheckbox) settingCheckbox.checked = checked;
+        }
+
+        function closeIssuePopup(kind) {
+            // Dipanggil saat koneksi pulih: tutup pop-up dan reset data diagnosis.
+            if (activeIssuePopupKind === kind) closeDisconnectModal();
+            issueStartedAt[kind] = null;
+            issueDiagnosis[kind] = null;
+            if (kind === 'tower') signalHistory.length = 0;
+        }
+
+        // Alur gangguan disamakan dengan alur "kembali normal": banner SELALU tampil
+        // (tidak bergantung preferensi), ditambah pop-up kecuali disembunyikan pengguna.
+        function notifyIssue(kind, message) {
+            issueStartedAt[kind] = Date.now();
+            showConnectionNotice('issue', message);
+            if (shouldShowIssuePopup(kind)) showIssuePopup(kind);
         }
 
         function openModal(modalId, boxId) {
@@ -1300,6 +1514,7 @@ HTML_CONTENT = """
             } else {
                 body.className = body.className.replace('bg-slate-100 text-slate-900', 'bg-slate-950 text-slate-100');
             }
+            body.classList.toggle('theme-light', theme === 'light');
             if (save) {
                 safeStorage.setItem('router_theme', theme);
             }
@@ -1312,9 +1527,9 @@ HTML_CONTENT = """
             updatePingMonitorFrequency();
         }
 
-        function addHistoryLog(status, timeStr) {
+        function addHistoryLog(status, timeStr, note = '') {
             const isConn = status.includes('Tersambung') || status.includes('Normal');
-            const logItem = { status: status, time: timeStr, type: isConn ? 'connect' : 'disconnect' };
+            const logItem = { status: status, time: timeStr, type: isConn ? 'connect' : 'disconnect', note: note || '' };
             connectionHistory.unshift(logItem);
             
             let modal = document.getElementById('historyModal');
@@ -1344,6 +1559,7 @@ HTML_CONTENT = """
                             <div>
                                 <div class="font-semibold text-slate-200">${item.status}</div>
                                 <div class="text-[10px] text-slate-400">Pukul ${item.time}</div>
+                                ${item.note ? '<div class="text-[10px] text-slate-500 mt-0.5">' + item.note + '</div>' : ''}
                             </div>
                         </div>
                         <span class="text-[10px] px-2 py-0.5 rounded-full border ${badgeColor}">${item.type === 'connect' ? 'Normal' : 'Gangguan'}</span>
@@ -1503,6 +1719,7 @@ HTML_CONTENT = """
                     const dotEl = document.getElementById('dot-ping');
                     if (result && result.success && Number.isFinite(Number(result.value))) {
                         const value = Number(result.value);
+                        lastPingOkAt = Date.now();
                         valueEl.innerText = value.toFixed(1) + ' ms';
                         textEl.innerText = value < 80 ? 'Bagus' : value < 150 ? 'Sedang' : 'Tinggi';
                         textEl.className = 'font-semibold ' + (value < 80 ? 'text-emerald-400' : value < 150 ? 'text-amber-400' : 'text-orange-400');
@@ -1524,6 +1741,8 @@ HTML_CONTENT = """
                 } catch (error) {
                     document.getElementById('val-ping').innerText = '— ms';
                     document.getElementById('text-ping').innerText = 'Tidak tersedia';
+                    document.getElementById('text-ping').className = 'font-semibold text-orange-400';
+                    document.getElementById('dot-ping').className = 'h-1.5 w-1.5 rounded-full bg-orange-400';
                 } finally {
                     pingMonitorBusy = false;
                 }
@@ -1606,6 +1825,7 @@ HTML_CONTENT = """
             const parsedSignalBar = Number.parseInt(data.signalbar, 10);
             const rawTowerConnected = Number.isFinite(parsedSignalBar) && parsedSignalBar > 0;
             const rawInternetOk = data.internet_ok === true;
+            if (rawTowerConnected) recordSignalSample(data);
 
             const towerStatusEl = document.getElementById('tower-status-val');
             const internetStatusEl = document.getElementById('internet-status-val');
@@ -1621,14 +1841,10 @@ HTML_CONTENT = """
                 internetFailCount = wasInternetOk ? 0 : 1;
                 if (!wasConnected) {
                     towerIssueNotified = true;
-                    if (shouldShowIssuePopup('tower')) {
-                        showConnectionNotice('issue', '⚠️ GANGGUAN TOWER: sinyal tower tidak terdeteksi.');
-                    }
+                    notifyIssue('tower', '⚠️ GANGGUAN TOWER: sinyal tower tidak terdeteksi.');
                 } else if (!wasInternetOk) {
                     internetIssueNotified = true;
-                    if (shouldShowIssuePopup('internet')) {
-                        showConnectionNotice('issue', '🌐 GANGGUAN INTERNET: tower tersambung, akses internet gagal.');
-                    }
+                    notifyIssue('internet', '🌐 GANGGUAN INTERNET: tower tersambung, akses internet gagal.');
                 }
             } else {
                 // Require repeated readings before changing state; this prevents transient request
@@ -1638,6 +1854,7 @@ HTML_CONTENT = """
                     towerFailCount = 0;
                     if (!wasConnected && towerSuccessCount >= 3) {
                         wasConnected = true;
+                        closeIssuePopup('tower');
                         addHistoryLog('Tower Kembali Normal', nowTime);
                         playAlertSound();
                         if (towerIssueNotified) {
@@ -1651,12 +1868,10 @@ HTML_CONTENT = """
                     if (wasConnected && towerFailCount >= 3) {
                         wasConnected = false;
                         wasInternetOk = false;
-                        addHistoryLog('Tower Terputus', nowTime);
+                        addHistoryLog('Tower Terputus', nowTime, issueNote('tower'));
                         playAlertSound();
                         towerIssueNotified = true;
-                        if (shouldShowIssuePopup('tower')) {
-                            showConnectionNotice('issue', '⚠️ GANGGUAN TOWER: koneksi tower terputus.');
-                        }
+                        notifyIssue('tower', '⚠️ GANGGUAN TOWER: koneksi tower terputus.');
                     }
                 }
 
@@ -1670,6 +1885,7 @@ HTML_CONTENT = """
                     internetFailCount = 0;
                     if (!wasInternetOk && internetSuccessCount >= 3) {
                         wasInternetOk = true;
+                        closeIssuePopup('internet');
                         if (internetIssueNotified) {
                             addHistoryLog('Internet Kembali Normal', nowTime);
                             playAlertSound();
@@ -1683,11 +1899,9 @@ HTML_CONTENT = """
                     if (internetFailCount >= 3 && !internetIssueNotified) {
                         wasInternetOk = false;
                         internetIssueNotified = true;
-                        addHistoryLog('Internet Bermasalah', nowTime);
+                        addHistoryLog('Internet Bermasalah', nowTime, issueNote('internet'));
                         playAlertSound();
-                        if (shouldShowIssuePopup('internet')) {
-                            showConnectionNotice('issue', '🌐 GANGGUAN INTERNET: tower aktif, tetapi akses internet gagal.');
-                        }
+                        notifyIssue('internet', '🌐 GANGGUAN INTERNET: tower aktif, tetapi akses internet gagal.');
                     }
                 }
             }
@@ -1769,6 +1983,7 @@ HTML_CONTENT = """
             document.getElementById('info-band').innerText = data.wan_active_band || '-';
 
             let connEl = document.getElementById('status-conn');
+            refreshIssueElapsed();
             connEl.innerText = `Terakhir: ${nowTime}`;
             connEl.className = "text-[11px] font-medium bg-emerald-950/40 border border-emerald-500/30 text-emerald-400 px-3 py-1 rounded-xl shadow-inner";
         }
