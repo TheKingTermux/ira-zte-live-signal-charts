@@ -4,9 +4,12 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
 import android.content.ClipData
+import android.content.ContentValues
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.MediaStore
 import android.provider.Settings
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
@@ -19,6 +22,9 @@ import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : Activity() {
     private lateinit var webView: WebView
@@ -31,51 +37,7 @@ class MainActivity : Activity() {
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
         webView.webChromeClient = WebChromeClient()
-        webView.webViewClient = object : WebViewClient() {
-            override fun onPageFinished(view: WebView?, url: String?) {
-                super.onPageFinished(view, url)
-                webView.evaluateJavascript("""
-                    (function() {
-                      if (document.getElementById('android-apk-updater')) return;
-                      const box = document.getElementById('settingsBox');
-                      if (!box) return;
-                      const section = document.createElement('div');
-                      section.id = 'android-apk-updater';
-                      section.className = 'pt-3 border-t border-slate-800 space-y-2';
-                      section.innerHTML = '<div class="text-xs font-bold text-cyan-400">Pembaruan APK Android</div>' +
-                        '<button id="apk-check-btn" class="w-full bg-slate-800 text-white text-xs px-3 py-2 rounded-xl">Periksa Pembaruan APK</button>' +
-                        '<div id="apk-update-status" class="text-[10px] text-slate-400"></div>' +
-                        '<div class="pt-2 border-t border-slate-800"><div class="text-xs font-bold text-cyan-400 mb-2">Diagnostik & Log</div>' +
-                        '<button id="android-export-logs-btn" class="w-full bg-cyan-700 text-white text-xs px-3 py-2 rounded-xl">Ekspor Log Debug</button>' +
-                        '<p class="text-[10px] text-slate-500 mt-1">Menyimpan status aplikasi, info jaringan, dan riwayat koneksi tanpa kata sandi.</p></div>' +
-                        '<div id="apk-progress-panel" class="hidden space-y-1.5 rounded-lg border border-slate-800 bg-slate-950/70 p-2">' +
-                          '<div class="flex justify-between gap-2 text-[10px]"><span id="apk-progress-label">Menyiapkan unduhan…</span><span id="apk-progress-percent">0%</span></div>' +
-                          '<div class="h-2 overflow-hidden rounded-full bg-slate-800"><div id="apk-progress-bar" class="h-full w-0 rounded-full bg-cyan-500"></div></div>' +
-                          '<div id="apk-progress-details" class="text-[10px] text-slate-400">Menghitung kecepatan dan sisa waktu…</div></div>';
-                      const closeRow = box.querySelector('.pt-2.flex.justify-end');
-                      if (closeRow) box.insertBefore(section, closeRow); else box.appendChild(section);
-                      document.getElementById('android-export-logs-btn').onclick = function() {
-                        const text = id => document.getElementById(id)?.innerText || 'unknown';
-                        const report = {
-                          app: 'IRA ZTE MC8501 5G Live Signal Charts',
-                          version: AndroidBridge.getAppVersion(),
-                          exported_at: new Date().toISOString(),
-                          platform: navigator.userAgent,
-                          status: { connection: text('status-conn'), tower: text('tower-status-val'), internet: text('internet-status-val') },
-                          telemetry: { signalbar: text('info-signalbar'), network_type: text('info-nettype'), pci: text('info-pci'), cell_id: text('info-cellid') },
-                          connection_history: Array.isArray(window.connectionHistory) ? window.connectionHistory.slice(0, 300) : [],
-                          note: 'Diagnostic export excludes passwords, cookies, tokens, and router credentials.'
-                        };
-                        AndroidBridge.exportDiagnosticLogs(JSON.stringify(report, null, 2));
-                      };
-                      document.getElementById('apk-check-btn').onclick = function() {
-                        document.getElementById('apk-update-status').textContent = 'Memeriksa GitHub Releases...';
-                        AndroidBridge.checkForApkUpdate();
-                      };
-                    })();
-                """.trimIndent(), null)
-            }
-        }
+        webView.webViewClient = WebViewClient()
         webView.addJavascriptInterface(RouterBridge(), "AndroidBridge")
         setContentView(webView)
         webView.loadUrl("file:///android_asset/index.html")
@@ -129,6 +91,42 @@ class MainActivity : Activity() {
             })();
         """.trimIndent()
         runOnUiThread { webView.evaluateJavascript(script, null) }
+    }
+
+    // Mengabarkan hasil ekspor ke halaman (window.onDiagnosticExport di index.html).
+    private fun exportResult(ok: Boolean, message: String) {
+        val script = "window.onDiagnosticExport && window.onDiagnosticExport($ok, ${JSONObject.quote(message)});"
+        runOnUiThread { webView.evaluateJavascript(script, null) }
+    }
+
+    // Menyimpan salinan log ke Download/IRA ZTE. Android 10+ tidak butuh izin tambahan;
+    // di versi lebih lama mengembalikan null (log tetap bisa dibagikan lewat share sheet).
+    @SuppressLint("NewApi")
+    private fun saveToDownloads(fileName: String, content: String): String? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+        return try {
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+                put(MediaStore.Downloads.MIME_TYPE, "application/json")
+                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/IRA ZTE")
+                put(MediaStore.Downloads.IS_PENDING, 1)
+            }
+            val resolver = contentResolver
+            val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return null
+            try {
+                val stream = resolver.openOutputStream(uri) ?: error("Tidak bisa membuka file tujuan")
+                stream.use { it.write(content.toByteArray(Charsets.UTF_8)) }
+                values.clear()
+                values.put(MediaStore.Downloads.IS_PENDING, 0)
+                resolver.update(uri, values, null, null)
+            } catch (e: Exception) {
+                resolver.delete(uri, null, null)
+                return null
+            }
+            "Download/IRA ZTE/$fileName"
+        } catch (e: Exception) {
+            null
+        }
     }
 
     private data class ApkRelease(val version: String, val url: String)
@@ -267,8 +265,12 @@ class MainActivity : Activity() {
             Thread {
                 try {
                     val report = json?.takeIf { it.isNotBlank() } ?: error("Log kosong.")
-                    val file = File(cacheDir, "ira-zte-diagnostic-${System.currentTimeMillis()}.json")
+                    val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+                    val fileName = "ira-zte-diagnostic-$stamp.json"
+                    val file = File(cacheDir, fileName)
                     file.writeText(report, Charsets.UTF_8)
+                    // Salinan permanen di Download/IRA ZTE (Android 10+).
+                    val savedPath = saveToDownloads(fileName, report)
                     val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.fileprovider", file)
                     val share = Intent(Intent.ACTION_SEND).apply {
                         type = "application/json"
@@ -278,9 +280,21 @@ class MainActivity : Activity() {
                         clipData = ClipData.newUri(contentResolver, file.name, uri)
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     }
-                    runOnUiThread { startActivity(Intent.createChooser(share, "Simpan atau bagikan log debug")) }
+                    runOnUiThread {
+                        val shared = try {
+                            startActivity(Intent.createChooser(share, "Simpan atau bagikan log debug"))
+                            true
+                        } catch (e: Exception) {
+                            false
+                        }
+                        when {
+                            savedPath != null -> exportResult(true, "Log disimpan di $savedPath" + if (shared) ". Pilih aplikasi untuk membagikannya." else ".")
+                            shared -> exportResult(true, "Pilih tujuan penyimpanan atau aplikasi untuk membagikan log.")
+                            else -> exportResult(false, "Tidak bisa menyimpan atau membagikan log di perangkat ini.")
+                        }
+                    }
                 } catch (e: Exception) {
-                    status("Gagal ekspor log: ${e.localizedMessage ?: e.javaClass.simpleName}")
+                    exportResult(false, "Gagal ekspor log: ${e.localizedMessage ?: e.javaClass.simpleName}")
                 }
             }.start()
         }
