@@ -83,9 +83,20 @@ HTML_CONTENT = """
         .theme-light #app-subtitle { color: #475569; }
         .theme-light .card-bg { background-color: rgb(15 23 42 / 0.96); }
         .theme-light #status-conn { background-color: #0f172a !important; border-color: #1e293b !important; }
+        /* ===== Transisi tema gelap <-> terang ===== */
+        body.theme-light { background-color: #f1f5f9; color: #0f172a; }
+        ::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+        ::view-transition-old(root) { z-index: 1; }
+        ::view-transition-new(root) { z-index: 2; }
+        html.theme-vt *, html.theme-vt *::before, html.theme-vt *::after { transition: none !important; }
+        html.theme-animating, html.theme-animating *, html.theme-animating *::before, html.theme-animating *::after {
+            transition: background-color 0.7s cubic-bezier(0.4, 0, 0.2, 1), color 0.7s cubic-bezier(0.4, 0, 0.2, 1),
+                        border-color 0.7s cubic-bezier(0.4, 0, 0.2, 1), fill 0.7s ease, stroke 0.7s ease, box-shadow 0.7s ease !important;
+        }
     </style>
 </head>
 <body id="app-body" class="bg-slate-950 text-slate-100 h-screen overflow-hidden p-4 flex flex-col justify-between select-none relative">
+    <div class="hidden bg-slate-100 text-slate-900" aria-hidden="true"></div>
     
     <!-- Header -->
     <header class="flex justify-between items-center pb-2 border-b border-slate-800 gap-2 shrink-0 relative">
@@ -418,7 +429,7 @@ HTML_CONTENT = """
                         <div class="bg-slate-950 border border-slate-800 rounded-xl p-3">
                             <div class="text-[10px] text-slate-400">LATENCY</div>
                             <div class="text-xl font-black text-emerald-300"><span id="speed-latency">—</span><span class="text-xs font-semibold ml-1">ms</span></div>
-                            <div class="text-[9px] text-slate-500">Rata-rata latency</div>
+                            <div id="speed-latency-status" class="text-[9px] text-slate-500">Rata-rata latency</div>
                         </div>
                         <div class="bg-slate-950 border border-slate-800 rounded-xl p-3">
                             <div class="text-[10px] text-slate-400">STATUS</div>
@@ -475,6 +486,7 @@ HTML_CONTENT = """
                 <!-- Tab 4: About & Update Details -->
                 <div id="tab-about" class="tab-pane absolute inset-0 w-full overflow-y-auto overscroll-contain space-y-3 pt-1 pr-1 opacity-0 scale-[0.985] translate-y-1 pointer-events-none hidden">
                     <button onclick="exportDiagnosticLogs()" class="w-full bg-cyan-700 hover:bg-cyan-600 text-white text-xs font-bold px-3 py-2 rounded-xl">📄 Ekspor Log Debug</button>
+                    <p id="export-status" class="text-[10px] text-slate-400 min-h-[14px] break-all"></p>
                     <div class="rounded-xl border border-cyan-900/70 bg-cyan-950/20 p-4">
                         <div class="text-lg font-black tracking-wide text-cyan-300">IRA ZTE MC8501 5G LIVE SIGNAL CHARTS</div>
                         <div class="text-[11px] text-slate-400 mt-1">Versi aplikasi: <span id="about-app-version" class="text-slate-200 font-semibold">__APP_VERSION__</span></div>
@@ -1507,17 +1519,66 @@ HTML_CONTENT = """
             closeModal('reconnectModal', 'reconnectBox');
         }
 
-        function changeTheme(theme, save = true) {
-            let body = document.getElementById('app-body');
+        // ===== Pergantian tema dengan animasi halus =====
+        // Utama: View Transitions API (lingkaran yang meluas dari pemilih tema, dianimasikan
+        // di GPU). Cadangan: transisi warna CSS. Dilewati jika pengguna memilih mengurangi gerakan.
+        let themeTransitionTimer = null;
+
+        function applyThemeClasses(theme) {
+            const body = document.getElementById('app-body');
             if (theme === 'light') {
                 body.className = body.className.replace('bg-slate-950 text-slate-100', 'bg-slate-100 text-slate-900');
             } else {
                 body.className = body.className.replace('bg-slate-100 text-slate-900', 'bg-slate-950 text-slate-100');
             }
             body.classList.toggle('theme-light', theme === 'light');
+        }
+
+        function changeTheme(theme, save = true) {
             if (save) {
                 safeStorage.setItem('router_theme', theme);
             }
+            const root = document.documentElement;
+            const body = document.getElementById('app-body');
+            const reduceMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+            const unchanged = body.classList.contains('theme-light') === (theme === 'light');
+            // Tanpa animasi saat memuat pengaturan, tema sama, atau gerakan dikurangi.
+            if (!save || unchanged || reduceMotion) {
+                applyThemeClasses(theme);
+                return;
+            }
+
+            if (typeof document.startViewTransition === 'function') {
+                const select = document.getElementById('setting-theme');
+                const rect = select ? select.getBoundingClientRect() : null;
+                const hasRect = !!rect && Number.isFinite(rect.left) && Number.isFinite(rect.top);
+                const x = hasRect ? rect.left + (rect.width || 0) / 2 : window.innerWidth / 2;
+                const y = hasRect ? rect.top + (rect.height || 0) / 2 : window.innerHeight / 2;
+                const radius = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
+                const cleanup = () => root.classList.remove('theme-vt');
+                root.classList.add('theme-vt');
+                try {
+                    const transition = document.startViewTransition(() => applyThemeClasses(theme));
+                    transition.ready.then(() => {
+                        root.animate(
+                            { clipPath: ['circle(0px at ' + x + 'px ' + y + 'px)', 'circle(' + radius + 'px at ' + x + 'px ' + y + 'px)'] },
+                            { duration: 800, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', pseudoElement: '::view-transition-new(root)' }
+                        );
+                    }).catch(() => {});
+                    transition.finished.then(cleanup, cleanup);
+                } catch (error) {
+                    cleanup();
+                    applyThemeClasses(theme);
+                }
+                return;
+            }
+
+            // Cadangan: transisi warna CSS untuk seluruh elemen selama pergantian.
+            root.classList.add('theme-animating');
+            void root.offsetWidth;
+            applyThemeClasses(theme);
+            clearTimeout(themeTransitionTimer);
+            themeTransitionTimer = setTimeout(() => root.classList.remove('theme-animating'), 900);
         }
 
         function changeFrequency(val) {
@@ -1997,6 +2058,15 @@ HTML_CONTENT = """
             diagnosticErrors.push({ time: new Date().toISOString(), type: 'unhandledrejection', message: String(event.reason || 'Unknown rejection') });
             if (diagnosticErrors.length > 200) diagnosticErrors.shift();
         });
+        function setExportStatus(message, isError = false) {
+            // Banner tertutup oleh jendela Pengaturan, jadi hasil juga ditulis di dekat tombol.
+            const el = document.getElementById('export-status');
+            if (el) {
+                el.innerText = message;
+                el.className = 'text-[10px] min-h-[14px] break-all ' + (isError ? 'text-orange-400' : 'text-emerald-400');
+            }
+        }
+
         async function exportDiagnosticLogs() {
             const report = {
                 app: 'IRA ZTE MC8501 5G Live Signal Charts',
@@ -2016,6 +2086,11 @@ HTML_CONTENT = """
                     cell_id: document.getElementById('info-cellid')?.innerText || 'unknown'
                 },
                 connection_history: Array.isArray(connectionHistory) ? connectionHistory.slice(0, 300) : [],
+                signal_history: signalHistory.slice(-15),
+                popup_preferences: {
+                    suppress_tower_popup: safeStorage.getItem('suppress_tower_popup') === 'true',
+                    suppress_internet_popup: safeStorage.getItem('suppress_internet_popup') === 'true'
+                },
                 javascript_errors: diagnosticErrors.slice(-200),
                 settings: {
                     router_poll_interval_ms: safeStorage.getItem('router_freq') || 'default',
@@ -2026,10 +2101,23 @@ HTML_CONTENT = """
             };
             const json = JSON.stringify(report, null, 2);
             try {
-                if (window.pywebview?.api?.export_diagnostic_logs) {
+                if (window.pywebview && window.pywebview.api) {
+                    if (typeof window.pywebview.api.export_diagnostic_logs !== 'function') {
+                        setExportStatus('Fitur ekspor belum siap. Coba lagi beberapa detik lagi.', true);
+                        return;
+                    }
+                    setExportStatus('Memilih lokasi penyimpanan…');
                     const result = await window.pywebview.api.export_diagnostic_logs(json);
-                    if (result?.success) showConnectionNotice('info', 'Log debug berhasil disimpan.');
-                    else if (result?.error) showConnectionNotice('issue', 'Gagal ekspor log: ' + result.error, 8000);
+                    if (result && result.success) {
+                        const where = result.path || '';
+                        setExportStatus((result.fallback ? 'Dialog simpan tidak tersedia, log disimpan otomatis di: ' : 'Log disimpan di: ') + where);
+                        showConnectionNotice('info', '📄 Log debug disimpan.', 6000);
+                    } else if (result && result.cancelled) {
+                        setExportStatus('Ekspor dibatalkan.');
+                    } else {
+                        setExportStatus('Gagal ekspor log: ' + ((result && result.error) || 'penyebab tidak diketahui'), true);
+                        showConnectionNotice('issue', 'Gagal ekspor log.', 6000);
+                    }
                     return;
                 }
                 if (window.AndroidBridge?.exportDiagnosticLogs) {
@@ -2044,6 +2132,7 @@ HTML_CONTENT = """
                 link.click();
                 setTimeout(() => URL.revokeObjectURL(url), 1000);
             } catch (error) {
+                setExportStatus('Gagal ekspor log: ' + String(error), true);
                 showConnectionNotice('issue', 'Gagal ekspor log: ' + String(error), 8000);
             }
         }
@@ -2104,36 +2193,60 @@ class Api:
         with self._update_progress_lock:
             self._update_progress.update(values)
 
-    def export_diagnostic_logs(self, payload):
-        """Save a user-requested, sanitized diagnostic report to a chosen JSON file."""
-        import json
-        import tkinter as tk
-        from tkinter import filedialog
+    @staticmethod
+    def _default_export_dir():
+        home = Path.home()
+        for name in ("Downloads", "Documents"):
+            candidate = home / name
+            if candidate.is_dir():
+                return candidate
+        return home
 
+    def export_diagnostic_logs(self, payload):
+        """Save a user-requested, sanitized diagnostic report as a JSON file.
+
+        Uses pywebview's own save dialog, which is safe to call from the JS API thread
+        (a separate tkinter root is not). If the dialog is unavailable or fails, the report
+        is written to the Downloads/Documents folder so the export never fails silently.
+        """
+        import json
         try:
-            report = json.loads(payload)
-            root = tk.Tk()
-            root.withdraw()
-            try:
-                root.attributes("-topmost", True)
-            except Exception:
-                pass
-            path = filedialog.asksaveasfilename(
-                parent=root,
-                title="Ekspor Log Debug IRA ZTE",
-                defaultextension=".json",
-                initialfile=f"ira-zte-diagnostic-{time.strftime('%Y%m%d-%H%M%S')}.json",
-                filetypes=[("JSON diagnostic log", "*.json"), ("Semua file", "*.*")]
-            )
-            root.destroy()
-            if not path:
-                return {"success": False, "cancelled": True}
-            with open(path, "w", encoding="utf-8") as output:
-                json.dump(report, output, ensure_ascii=False, indent=2)
-            return {"success": True, "path": path}
+            text = json.dumps(json.loads(payload), ensure_ascii=False, indent=2)
         except Exception as e:
-            print(f"[ERROR EXPORT LOG] {type(e).__name__}: {e}")
-            return {"success": False, "error": f"{type(e).__name__}: {e}"}
+            return {"success": False, "error": f"Data log tidak valid: {type(e).__name__}: {e}"}
+
+        filename = f"ira-zte-diagnostic-{time.strftime('%Y%m%d-%H%M%S')}.json"
+        chosen = None
+        try:
+            windows = getattr(webview, "windows", None) or []
+            if not windows:
+                raise RuntimeError("Jendela aplikasi belum siap")
+            dialog_type = webview.FileDialog.SAVE if hasattr(webview, "FileDialog") else webview.SAVE_DIALOG
+            result = windows[0].create_file_dialog(
+                dialog_type,
+                directory=str(self._default_export_dir()),
+                save_filename=filename,
+                file_types=("JSON (*.json)", "Semua file (*.*)"),
+            )
+            if not result:
+                return {"success": False, "cancelled": True}
+            chosen = Path(result if isinstance(result, (str, os.PathLike)) else result[0])
+            if not chosen.suffix:
+                chosen = chosen.with_suffix(".json")
+        except Exception as e:
+            print(f"[ERROR EXPORT LOG] dialog: {type(e).__name__}: {e}")
+            chosen = None
+
+        used_fallback = chosen is None
+        if used_fallback:
+            chosen = self._default_export_dir() / filename
+        try:
+            chosen.parent.mkdir(parents=True, exist_ok=True)
+            chosen.write_text(text, encoding="utf-8")
+        except Exception as e:
+            print(f"[ERROR EXPORT LOG] write: {type(e).__name__}: {e}")
+            return {"success": False, "error": f"Tidak bisa menulis file: {type(e).__name__}: {e}"}
+        return {"success": True, "path": str(chosen), "fallback": used_fallback}
 
     def get_router_data(self):
         data = {}
