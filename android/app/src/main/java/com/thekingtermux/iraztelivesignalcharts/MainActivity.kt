@@ -20,11 +20,17 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.io.RandomAccessFile
 import java.net.HttpURLConnection
 import java.net.URL
+import java.nio.ByteBuffer
+import java.nio.channels.FileChannel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 class MainActivity : Activity() {
     private lateinit var webView: WebView
@@ -129,7 +135,31 @@ class MainActivity : Activity() {
         }
     }
 
-    private data class ApkRelease(val version: String, val url: String)
+    private data class ApkRelease(
+        val version: String,
+        val url: String,
+        val name: String = "",
+        val body: String = "",
+        val publishedAt: String = "",
+        val htmlUrl: String = ""
+    )
+
+    // JSONObject.optString mengembalikan teks "null" untuk nilai JSON null, jadi ditangani terpisah.
+    private fun JSONObject.stringOrEmpty(key: String): String = if (isNull(key)) "" else optString(key, "")
+
+    // Mengirim catatan rilis ke halaman (window.onApkReleaseInfo di index.html).
+    private fun releaseInfoToJs(release: ApkRelease, channel: String) {
+        val json = JSONObject().apply {
+            put("tag_name", release.version)
+            put("name", release.name)
+            put("body", release.body)
+            put("published_at", release.publishedAt)
+            put("html_url", release.htmlUrl)
+            put("channel", channel)
+        }
+        val script = "window.onApkReleaseInfo && window.onApkReleaseInfo($json);"
+        runOnUiThread { webView.evaluateJavascript(script, null) }
+    }
 
     private fun latestApk(channel: String): ApkRelease {
         val normalizedChannel = if (channel.equals("beta", true)) "beta" else "stable"
@@ -161,7 +191,14 @@ class MainActivity : Activity() {
                     val name = asset.optString("name")
                     val url = asset.optString("browser_download_url")
                     if (name.endsWith(".apk", true) && url.startsWith("https://github.com/") && asset.optLong("size") > 100000L) {
-                        return ApkRelease(release.optString("tag_name", release.optString("name")), url)
+                        return ApkRelease(
+                            version = release.optString("tag_name", release.optString("name")),
+                            url = url,
+                            name = release.stringOrEmpty("name"),
+                            body = release.stringOrEmpty("body"),
+                            publishedAt = release.stringOrEmpty("published_at"),
+                            htmlUrl = release.stringOrEmpty("html_url")
+                        )
                     }
                 }
             }
@@ -182,40 +219,163 @@ class MainActivity : Activity() {
 
     private fun installedVersion(): String = packageManager.getPackageInfo(packageName, 0).versionName ?: "0"
 
-    private fun installApk(release: ApkRelease) {
-        val conn = (URL(release.url).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 15000; readTimeout = 30000; instanceFollowRedirects = true
-            setRequestProperty("User-Agent", "IRA-ZTE-Live-Signal-Charts-Android")
-        }
+    private fun openDownloadConnection(url: String, range: String?): HttpURLConnection {
+        val conn = URL(url).openConnection() as HttpURLConnection
+        conn.connectTimeout = 15000
+        conn.readTimeout = 30000
+        conn.instanceFollowRedirects = true
+        conn.setRequestProperty("User-Agent", "IRA-ZTE-Live-Signal-Charts-Android")
+        // Tanpa kompresi transparan agar Content-Length dan rentang byte (Range) akurat.
+        conn.setRequestProperty("Accept-Encoding", "identity")
+        if (range != null) conn.setRequestProperty("Range", range)
+        return conn
+    }
+
+    // Unduh satu koneksi (cadangan bila server tidak mendukung Range atau unduhan paralel gagal).
+    private fun downloadSingle(url: String, target: File, onProgress: (Long, Long) -> Unit) {
+        val conn = openDownloadConnection(url, null)
         try {
             if (conn.responseCode !in 200..299) error("Unduhan gagal: HTTP ${conn.responseCode}")
-            val apk = File(cacheDir, "ira-zte-update.apk")
             val total = (conn.getHeaderField("Content-Length")?.toLongOrNull() ?: -1L).coerceAtLeast(0L)
-            val startedAt = System.nanoTime()
             var downloaded = 0L
-            var lastUpdateAt = startedAt
             conn.inputStream.use { input ->
-                apk.outputStream().use { output ->
-                    val buffer = ByteArray(64 * 1024)
+                target.outputStream().use { output ->
+                    val buffer = ByteArray(256 * 1024)
                     while (true) {
                         val count = input.read(buffer)
                         if (count < 0) break
                         output.write(buffer, 0, count)
                         downloaded += count
-                        val now = System.nanoTime()
-                        if (now - lastUpdateAt >= 300_000_000L || (total > 0 && downloaded >= total)) {
-                            val elapsed = (now - startedAt) / 1_000_000_000.0
-                            val speed = if (elapsed > 0) downloaded / elapsed else 0.0
-                            val eta = if (total > 0 && speed > 0) ((total - downloaded) / speed).toLong() else -1L
-                            val percent = if (total > 0) (downloaded * 100.0 / total).coerceIn(0.0, 100.0) else -1.0
-                            progress(percent, downloaded, total, speed.toLong(), eta)
-                            lastUpdateAt = now
-                        }
+                        onProgress(downloaded, total)
                     }
                 }
             }
-            progress(100.0, downloaded, total, 0L, 0L)
-            if (apk.length() < 100000L) { apk.delete(); error("File APK tidak valid atau tidak lengkap.") }
+        } finally { conn.disconnect() }
+    }
+
+    // Mengunduh satu rentang byte dan menulisnya langsung ke posisi yang tepat di file tujuan.
+    private fun fetchRange(url: String, start: Long, end: Long, channel: FileChannel, buffer: ByteArray, downloaded: AtomicLong) {
+        val conn = openDownloadConnection(url, "bytes=$start-$end")
+        var counted = 0L
+        try {
+            if (conn.responseCode != HttpURLConnection.HTTP_PARTIAL) error("Server tidak mendukung Range (HTTP ${conn.responseCode})")
+            var position = start
+            conn.inputStream.use { input ->
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    if (position + count > end + 1) error("Server mengirim data melebihi rentang yang diminta")
+                    val chunk = ByteBuffer.wrap(buffer, 0, count)
+                    var written = 0
+                    while (chunk.hasRemaining()) {
+                        written += channel.write(chunk, position + written)
+                    }
+                    position += count
+                    counted += count
+                    downloaded.addAndGet(count.toLong())
+                }
+            }
+            if (position != end + 1) error("Rentang data tidak lengkap")
+        } catch (e: Exception) {
+            downloaded.addAndGet(-counted)
+            throw e
+        } finally { conn.disconnect() }
+    }
+
+    // CDN GitHub sering membatasi kecepatan per koneksi; beberapa koneksi paralel (HTTP Range) biasanya jauh lebih cepat.
+    private fun downloadParallel(url: String, total: Long, target: File, onProgress: (Long, Long) -> Unit) {
+        val blockSize = 4L * 1024 * 1024
+        val blocks = ((total + blockSize - 1) / blockSize).toInt()
+        val nextBlock = AtomicInteger(0)
+        val downloaded = AtomicLong(0L)
+        val failure = AtomicReference<Exception?>(null)
+
+        RandomAccessFile(target, "rw").use { file ->
+            file.setLength(total)
+            val channel = file.channel
+            val workers = (0 until minOf(4, blocks)).map {
+                Thread {
+                    val buffer = ByteArray(64 * 1024)
+                    try {
+                        while (failure.get() == null) {
+                            val index = nextBlock.getAndIncrement()
+                            if (index >= blocks) break
+                            val start = index * blockSize
+                            val end = minOf(start + blockSize, total) - 1
+                            var attempt = 0
+                            while (true) {
+                                try {
+                                    fetchRange(url, start, end, channel, buffer, downloaded)
+                                    break
+                                } catch (e: Exception) {
+                                    attempt++
+                                    if (attempt >= 3 || failure.get() != null) throw e
+                                    Thread.sleep(500L * attempt)
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        failure.compareAndSet(null, e)
+                    }
+                }
+            }
+            workers.forEach { it.start() }
+            while (workers.any { it.isAlive }) {
+                onProgress(downloaded.get(), total)
+                Thread.sleep(250)
+            }
+            workers.forEach { it.join() }
+        }
+        failure.get()?.let { throw it }
+        if (downloaded.get() != total) error("Ukuran unduhan tidak sesuai")
+        onProgress(total, total)
+    }
+
+    private fun downloadApk(url: String, target: File, onProgress: (Long, Long) -> Unit) {
+        var total = -1L
+        var finalUrl = url
+        var ranged = false
+        try {
+            val probe = openDownloadConnection(url, "bytes=0-0")
+            try {
+                val code = probe.responseCode
+                if (code == HttpURLConnection.HTTP_PARTIAL) {
+                    total = probe.getHeaderField("Content-Range")?.substringAfterLast('/')?.toLongOrNull() ?: -1L
+                    ranged = total > 0
+                    finalUrl = probe.url.toString()
+                }
+            } finally { probe.disconnect() }
+        } catch (e: Exception) {
+            ranged = false
+        }
+        if (ranged && total >= 2L * 1024 * 1024) {
+            try {
+                downloadParallel(finalUrl, total, target, onProgress)
+                return
+            } catch (e: Exception) {
+                target.delete()
+            }
+        }
+        downloadSingle(url, target, onProgress)
+    }
+
+    private fun installApk(release: ApkRelease) {
+        val apk = File(cacheDir, "ira-zte-update.apk")
+        val startedAt = System.nanoTime()
+        var lastUpdateAt = startedAt
+        downloadApk(release.url, apk) { downloaded, total ->
+            val now = System.nanoTime()
+            if (now - lastUpdateAt >= 300_000_000L || (total > 0 && downloaded >= total)) {
+                val elapsed = (now - startedAt) / 1_000_000_000.0
+                val speed = if (elapsed > 0) downloaded / elapsed else 0.0
+                val eta = if (total > 0 && speed > 0) ((total - downloaded) / speed).toLong() else -1L
+                val percent = if (total > 0) (downloaded * 100.0 / total).coerceIn(0.0, 100.0) else -1.0
+                progress(percent, downloaded, total, speed.toLong(), eta)
+                lastUpdateAt = now
+            }
+        }
+        progress(100.0, apk.length(), apk.length(), 0L, 0L)
+        if (apk.length() < 100000L) { apk.delete(); error("File APK tidak valid atau tidak lengkap.") }
             runOnUiThread {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
                     startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
@@ -231,7 +391,6 @@ class MainActivity : Activity() {
                     status("APK siap dipasang. Ikuti konfirmasi Android.")
                 } catch (e: Exception) { status("Gagal membuka pemasang: ${e.localizedMessage}") }
             }
-        } finally { conn.disconnect() }
     }
 
     inner class RouterBridge {
@@ -241,6 +400,7 @@ class MainActivity : Activity() {
             Thread {
                 try {
                     val release = latestApk(selectedChannel)
+                    releaseInfoToJs(release, selectedChannel)
                     val current = installedVersion()
                     if (newer(release.version, current)) status("Update ${selectedChannel.uppercase()} tersedia: ${release.version} (terpasang: $current).", true)
                     else status("Aplikasi sudah terbaru untuk kanal ${selectedChannel.uppercase()} ($current). Release: ${release.version}.")
@@ -297,6 +457,20 @@ class MainActivity : Activity() {
                     exportResult(false, "Gagal ekspor log: ${e.localizedMessage ?: e.javaClass.simpleName}")
                 }
             }.start()
+        }
+
+        // Membuka tautan GitHub di peramban sistem (bukan di dalam WebView aplikasi).
+        @JavascriptInterface
+        fun openUrl(url: String?) {
+            val target = url?.trim().orEmpty()
+            if (!target.startsWith("https://github.com/")) return
+            runOnUiThread {
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(target)))
+                } catch (e: Exception) {
+                    // Tidak ada peramban: abaikan.
+                }
+            }
         }
 
         @JavascriptInterface
