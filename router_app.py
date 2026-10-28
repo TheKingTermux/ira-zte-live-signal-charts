@@ -11,6 +11,7 @@ import tempfile
 from pathlib import Path
 
 APP_VERSION = "1.1-dev.3"
+SPEED_TEST_ENDPOINT = "https://speed.cloudflare.com"
 GITHUB_REPOSITORY = "TheKingTermux/ira-zte-live-signal-charts"
 GITHUB_RELEASES_API = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/releases?per_page=30"
 
@@ -527,6 +528,7 @@ HTML_CONTENT = """
                         <div class="border-t border-slate-800 pt-3">
                             <div class="text-[11px] font-bold text-cyan-300 mb-1">Informasi Release</div>
                             <p id="about-update-details" class="text-[10px] text-slate-400">Belum ada informasi release.</p>
+                            <div id="release-notes" class="hidden mt-2"></div>
                         </div>
                     </div>
                 </div>
@@ -998,6 +1000,8 @@ HTML_CONTENT = """
                 { key: 'upload', label: 'Upload', dataset: 1, unit: 'Mbps', statusId: 'speed-upload-status' },
                 { key: 'latency', label: 'Latensi', dataset: 2, unit: 'ms', statusId: 'speed-latency-status' }
             ];
+            let elapsedTimer = null;
+            try {
             btn.disabled = true;
             btn.innerText = '⏳ Tes download → upload → latensi…';
             document.getElementById('speed-state').innerText = 'Menghubungkan ke server speed test…';
@@ -1011,12 +1015,11 @@ HTML_CONTENT = """
             document.getElementById('speed-latency-status').innerText = 'Menunggu giliran';
             initSpeedChart();
 
-            const elapsedTimer = setInterval(() => {
+            elapsedTimer = setInterval(() => {
                 const elapsed = (performance.now() - started) / 1000;
                 document.getElementById('speed-elapsed').innerText = elapsed.toFixed(1) + ' / 90 detik';
             }, 100);
 
-            try {
                 for (let phaseIndex = 0; phaseIndex < phases.length; phaseIndex++) {
                     const phase = phases[phaseIndex];
                     const phaseStarted = performance.now();
@@ -1088,7 +1091,7 @@ HTML_CONTENT = """
                 document.getElementById('speed-state').className = 'text-sm font-bold text-red-400';
                 setSpeedProgress(100, 'Pengujian dihentikan: ' + (error.message || error));
             } finally {
-                clearInterval(elapsedTimer);
+                if (elapsedTimer) clearInterval(elapsedTimer);
                 speedTestRunning = false;
                 btn.disabled = false;
                 btn.innerText = '▶ Ulangi Speed Test';
@@ -1122,6 +1125,163 @@ HTML_CONTENT = """
         }
 
         const APP_VERSION_JS = "__APP_VERSION__";
+        // ===== Catatan rilis: Baru / Perbaikan / Perubahan / Lainnya =====
+        const RELEASE_GROUPS = [
+            { key: 'new', icon: '✨', title: 'Baru (New)', cls: 'text-emerald-300' },
+            { key: 'fix', icon: '🐛', title: 'Perbaikan (Fix)', cls: 'text-orange-300' },
+            { key: 'changed', icon: '🔄', title: 'Perubahan (Changed)', cls: 'text-cyan-300' },
+            { key: 'other', icon: '🔧', title: 'Lainnya', cls: 'text-slate-300' }
+        ];
+        const RELEASE_TYPE_MAP = {
+            feat: 'new', feature: 'new', add: 'new', new: 'new',
+            fix: 'fix', bugfix: 'fix', hotfix: 'fix',
+            perf: 'changed', refactor: 'changed', style: 'changed', update: 'changed', change: 'changed', improve: 'changed',
+            docs: 'other', chore: 'other', ci: 'other', build: 'other', test: 'other', deps: 'other', revert: 'other', release: 'other', bump: 'other'
+        };
+
+        function releaseHeadingKey(title) {
+            const t = String(title).toLowerCase().replace(/[^a-z\\s']/g, ' ').replace(/\\s+/g, ' ').trim();
+            if (/what'?s changed|changelog|ringkasan|summary/.test(t)) return null;
+            if (/\\b(new|feature|features|baru|fitur)\\b/.test(t)) return 'new';
+            if (/\\b(fix|fixes|fixed|bug|bugs|perbaikan|perbaiki)\\b/.test(t)) return 'fix';
+            if (/\\b(changed|change|changes|perubahan|improve|improvement|improvements|update)\\b/.test(t)) return 'changed';
+            if (/\\b(other|others|lainnya|maintenance|pemeliharaan|chore|docs)\\b/.test(t)) return 'other';
+            return null;
+        }
+
+        function parseReleaseNotes(body) {
+            const result = { groups: { new: [], fix: [], changed: [], other: [] }, intro: [], changelogUrl: null, since: null, total: 0 };
+            const lines = String(body || '').replace(/\\r\\n?/g, '\\n').split('\\n');
+            let headingKey = null;
+
+            const addItem = (rawText) => {
+                let text = rawText.replace(/\\[([^\\]]+)\\]\\([^)]*\\)/g, '$1').replace(/`/g, '').replace(/\\*\\*/g, '').trim();
+                let author = null, ref = null;
+                const by = text.match(/^(.*?)\\s+by\\s+@([\\w-]+)\\s+in\\s+(https?:\\/\\/\\S+)\\s*$/);
+                if (by) {
+                    text = by[1].trim();
+                    author = by[2];
+                    const pr = by[3].match(/\\/pull\\/(\\d+)/);
+                    if (pr) ref = '#' + pr[1];
+                }
+                const sha = text.match(/\\s*\\(([0-9a-f]{7,10})\\)\\s*$/);
+                if (sha) {
+                    text = text.slice(0, sha.index).trim();
+                    if (!ref) ref = sha[1];
+                }
+                if (!text || /^merge\\b/i.test(text) || /stamp build version/i.test(text) || /^automated\\b/i.test(text)) return;
+
+                let key = headingKey;
+                const prefix = text.match(/^(\\w+)(?:\\([^)]*\\))?!?:\\s*(.*)$/);
+                if (prefix) {
+                    const typed = RELEASE_TYPE_MAP[prefix[1].toLowerCase()];
+                    if (typed) {
+                        if (!key) key = typed;
+                        text = prefix[2].trim();
+                    }
+                }
+                if (!key) {
+                    const first = (text.split(/\\s+/)[0] || '').toLowerCase();
+                    if (/^(fix|fixed|fixes|perbaiki|perbaikan|bugfix)$/.test(first)) key = 'fix';
+                    else if (/^(add|added|new|tambah|tambahkan|baru)$/.test(first)) key = 'new';
+                    else key = 'changed';
+                }
+                if (!text) return;
+                text = text.charAt(0).toUpperCase() + text.slice(1);
+                result.groups[key].push({ text: text, author: author, ref: ref });
+                result.total++;
+            };
+
+            lines.forEach(raw => {
+                const line = raw.trim();
+                if (!line) return;
+                const full = line.match(/Full Changelog\\*{0,2}:?\\s*(https?:\\/\\/\\S+)/i);
+                if (full) { result.changelogUrl = full[1]; return; }
+                const heading = line.match(/^#{1,6}\\s*(.+)$/);
+                if (heading) { headingKey = releaseHeadingKey(heading[1]); return; }
+                const bullet = line.match(/^[*+-]\\s+(.*)$/);
+                if (bullet) { addItem(bullet[1]); return; }
+                const since = line.match(/Changes since\\s+(\\S+?)\\.?$/i);
+                if (since) { result.since = since[1]; return; }
+                result.intro.push(line);
+            });
+            return result;
+        }
+
+        function openExternalLink(url) {
+            // Tautan harus dibuka di peramban sistem, bukan menggantikan isi jendela aplikasi.
+            try {
+                if (window.AndroidBridge && typeof window.AndroidBridge.openUrl === 'function') { window.AndroidBridge.openUrl(url); return false; }
+                if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.open_url === 'function') { window.pywebview.api.open_url(url); return false; }
+            } catch (error) { console.error('Gagal membuka tautan:', error); }
+            return true;
+        }
+
+        function rnEl(tag, className, text) {
+            const node = document.createElement(tag);
+            if (className) node.className = className;
+            if (text !== undefined && text !== null) node.textContent = text;
+            return node;
+        }
+
+        function formatReleaseDate(iso) {
+            if (!iso) return '';
+            try {
+                return new Date(iso).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', dateStyle: 'medium', timeStyle: 'short' }) + ' WIB';
+            } catch (error) { return ''; }
+        }
+
+        // Semua teks dari rilis dimasukkan lewat textContent (bukan innerHTML) agar aman dari injeksi HTML.
+        function renderReleaseNotes(containerId, info) {
+            const box = document.getElementById(containerId);
+            if (!box) return;
+            box.textContent = '';
+            if (!info || !(info.tag_name || info.name)) { box.classList.add('hidden'); return; }
+            box.classList.remove('hidden');
+            const parsed = parseReleaseNotes(info.body);
+
+            const wrap = rnEl('div', 'rounded-lg border border-slate-800 bg-slate-950/60 p-2 space-y-2');
+            wrap.appendChild(rnEl('div', 'text-[11px] font-bold text-cyan-300', '📋 Catatan Rilis ' + (info.name || info.tag_name)));
+            const meta = [];
+            if (info.channel) meta.push(info.channel === 'beta' ? 'Beta' : 'Stable');
+            const when = formatReleaseDate(info.published_at);
+            if (when) meta.push(when);
+            if (parsed.since) meta.push('perubahan sejak ' + parsed.since);
+            if (meta.length) wrap.appendChild(rnEl('div', 'text-[10px] text-slate-500', meta.join(' · ')));
+
+            if (parsed.total === 0) {
+                const intro = parsed.intro.filter(line => !/^automated\\b/i.test(line)).join(' ').trim();
+                wrap.appendChild(rnEl('div', 'text-[10px] text-slate-400', intro ? intro.slice(0, 400) : 'Rilis ini tidak mencantumkan rincian perubahan.'));
+            } else {
+                let shown = 0;
+                RELEASE_GROUPS.forEach(group => {
+                    const items = parsed.groups[group.key];
+                    if (!items.length) return;
+                    const section = rnEl('div', 'space-y-1');
+                    section.appendChild(rnEl('div', 'text-[10px] font-bold uppercase tracking-wider ' + group.cls, group.icon + ' ' + group.title + ' · ' + items.length));
+                    const list = rnEl('ul', 'list-disc pl-4 space-y-0.5 text-[10px] text-slate-300');
+                    items.forEach(item => {
+                        if (shown >= 60) return;
+                        shown++;
+                        const li = rnEl('li', '', item.text);
+                        if (item.ref) li.appendChild(rnEl('span', 'text-slate-500', ' ' + item.ref));
+                        list.appendChild(li);
+                    });
+                    section.appendChild(list);
+                    wrap.appendChild(section);
+                });
+                if (parsed.total > shown) wrap.appendChild(rnEl('div', 'text-[10px] text-slate-500', '…dan ' + (parsed.total - shown) + ' perubahan lainnya.'));
+            }
+
+            const link = info.html_url || parsed.changelogUrl;
+            if (link) {
+                const button = rnEl('button', 'w-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-semibold px-3 py-1.5 rounded-lg', 'Lihat selengkapnya di GitHub');
+                button.onclick = () => { openExternalLink(link); };
+                wrap.appendChild(button);
+            }
+            box.appendChild(wrap);
+        }
+
         let availableUpdate = null;
         let updateInstallInProgress = false;
 
@@ -1149,6 +1309,7 @@ HTML_CONTENT = """
             try {
                 const result = await window.pywebview.api.check_for_updates(channel);
                 availableUpdate = result && result.update_available ? result : null;
+                renderReleaseNotes('release-notes', result && !result.error ? result : null);
                 if (availableUpdate) {
                     const versionText = `${result.name || result.tag_name} (${channel === 'beta' ? 'Beta' : 'Stable'})`;
                     setUpdateStatus(`Update tersedia: ${versionText}. Klik Unduh & Pasang untuk menerapkan.`);
@@ -2471,6 +2632,139 @@ class Api:
 
         return matches[0] if matches else None
 
+    # --- Unduhan update: beberapa koneksi paralel (HTTP Range) -----------------------------
+    # CDN GitHub sering membatasi kecepatan per koneksi; memakai beberapa koneksi sekaligus
+    # biasanya jauh lebih cepat. Jika server tidak mendukung Range atau unduhan paralel gagal,
+    # otomatis kembali ke unduhan satu koneksi.
+    _UPDATE_CONNECTIONS = 4
+    _UPDATE_BLOCK_SIZE = 4 * 1024 * 1024
+    _UPDATE_PARALLEL_MIN_SIZE = 2 * 1024 * 1024
+
+    @staticmethod
+    def _probe_download(url, headers):
+        """Return (total_bytes, final_url, supports_range) without downloading the body."""
+        with requests.get(url, headers={**headers, "Range": "bytes=0-0"}, stream=True, timeout=(5, 15)) as response:
+            response.raise_for_status()
+            final_url = response.url
+            if response.status_code == 206:
+                tail = response.headers.get("Content-Range", "").rsplit("/", 1)[-1]
+                total = int(tail) if tail.isdigit() else 0
+                return total, final_url, total > 0
+            return int(response.headers.get("Content-Length") or 0), final_url, False
+
+    def _report_download(self, downloaded, total, started_at):
+        elapsed = max(time.monotonic() - started_at, 0.001)
+        speed = downloaded / elapsed
+        eta = max((total - downloaded) / speed, 0) if total > 0 and speed > 0 else None
+        percent = min(downloaded * 100 / total, 100) if total > 0 else 0
+        self._set_update_progress(
+            downloaded=downloaded, total=total, speed_bps=round(speed),
+            eta_seconds=round(eta) if eta is not None else None,
+            percent=round(percent, 1), status="Mengunduh update…",
+        )
+
+    def _download_single(self, url, headers, started_at):
+        downloaded = 0
+        chunks = []
+        with requests.get(url, headers=headers, timeout=(5, 60), stream=True) as response:
+            response.raise_for_status()
+            total = int(response.headers.get("Content-Length") or 0)
+            self._set_update_progress(total=total, status="Mengunduh update…")
+            for chunk in response.iter_content(chunk_size=256 * 1024):
+                if not chunk:
+                    continue
+                chunks.append(chunk)
+                downloaded += len(chunk)
+                self._report_download(downloaded, total, started_at)
+        return b"".join(chunks)
+
+    def _download_parallel(self, url, total, headers, started_at):
+        import threading
+        from collections import deque
+
+        block = self._UPDATE_BLOCK_SIZE
+        pending = deque((start, min(start + block, total) - 1) for start in range(0, total, block))
+        buffer = bytearray(total)
+        view = memoryview(buffer)
+        lock = threading.Lock()
+        state = {"downloaded": 0, "error": None}
+        self._set_update_progress(total=total, status="Mengunduh update…")
+
+        def worker():
+            session = requests.Session()
+            try:
+                while True:
+                    with lock:
+                        if state["error"] is not None or not pending:
+                            return
+                        start, end = pending.popleft()
+                    for attempt in range(3):
+                        counted = 0
+                        try:
+                            with session.get(url, headers={**headers, "Range": f"bytes={start}-{end}"},
+                                             stream=True, timeout=(5, 20)) as response:
+                                if response.status_code != 206:
+                                    raise RuntimeError(f"Server tidak mendukung Range (HTTP {response.status_code})")
+                                position = start
+                                for chunk in response.iter_content(chunk_size=64 * 1024):
+                                    if not chunk:
+                                        continue
+                                    if position + len(chunk) > end + 1:
+                                        raise RuntimeError("Server mengirim data melebihi rentang yang diminta")
+                                    view[position:position + len(chunk)] = chunk
+                                    position += len(chunk)
+                                    counted += len(chunk)
+                                    with lock:
+                                        state["downloaded"] += len(chunk)
+                                if position != end + 1:
+                                    raise RuntimeError("Rentang data tidak lengkap")
+                            break
+                        except Exception as e:
+                            with lock:
+                                state["downloaded"] -= counted
+                                if attempt == 2:
+                                    if state["error"] is None:
+                                        state["error"] = e
+                                    return
+                            time.sleep(0.5 * (attempt + 1))
+            finally:
+                session.close()
+
+        workers = [threading.Thread(target=worker, daemon=True)
+                   for _ in range(max(1, min(self._UPDATE_CONNECTIONS, len(pending))))]
+        for thread in workers:
+            thread.start()
+        while any(thread.is_alive() for thread in workers):
+            with lock:
+                done = state["downloaded"]
+            self._report_download(done, total, started_at)
+            time.sleep(0.25)
+        for thread in workers:
+            thread.join()
+        if state["error"] is not None:
+            raise state["error"]
+        if state["downloaded"] != total:
+            raise RuntimeError(f"Ukuran unduhan tidak sesuai ({state['downloaded']} dari {total} byte)")
+        self._report_download(total, total, started_at)
+        return bytes(buffer)
+
+    def _download_asset(self, url):
+        headers = {"User-Agent": "IRA-ZTE-Live-Signal-Charts", "Accept-Encoding": "identity"}
+        started_at = time.monotonic()
+        try:
+            total, final_url, ranged = self._probe_download(url, headers)
+        except Exception as e:
+            print(f"[UPDATE] probe unduhan gagal, memakai unduhan standar: {type(e).__name__}: {e}")
+            total, final_url, ranged = 0, url, False
+        if ranged and total >= self._UPDATE_PARALLEL_MIN_SIZE:
+            try:
+                return self._download_parallel(final_url, total, headers, started_at)
+            except Exception as e:
+                print(f"[UPDATE] unduhan paralel gagal, memakai unduhan standar: {type(e).__name__}: {e}")
+                self._set_update_progress(downloaded=0, percent=0, status="Mencoba unduhan standar…")
+                started_at = time.monotonic()
+        return self._download_single(url, headers, started_at)
+
     def check_for_updates(self, channel="stable"):
         try:
             release = self._get_release(channel)
@@ -2532,35 +2826,10 @@ class Api:
 
             self._set_update_progress(active=True, percent=0, downloaded=0, total=0,
                                       speed_bps=0, eta_seconds=None, status="Menghubungkan ke server…", error=None)
-            started_at = time.monotonic()
-            downloaded = 0
-            chunks = []
             try:
-                with requests.get(
-                    asset["browser_download_url"],
-                    headers={"User-Agent": "IRA-ZTE-Live-Signal-Charts"},
-                    timeout=(5, 60), stream=True,
-                ) as response:
-                    response.raise_for_status()
-                    total = int(response.headers.get("Content-Length") or 0)
-                    self._set_update_progress(total=total, status="Mengunduh update…")
-                    for chunk in response.iter_content(chunk_size=128 * 1024):
-                        if not chunk:
-                            continue
-                        chunks.append(chunk)
-                        downloaded += len(chunk)
-                        elapsed = max(time.monotonic() - started_at, 0.001)
-                        speed = downloaded / elapsed
-                        eta = max((total - downloaded) / speed, 0) if total > 0 and speed > 0 else None
-                        percent = min(downloaded * 100 / total, 100) if total > 0 else 0
-                        self._set_update_progress(
-                            downloaded=downloaded, total=total, speed_bps=round(speed),
-                            eta_seconds=round(eta) if eta is not None else None,
-                            percent=round(percent, 1), status="Mengunduh update…",
-                        )
-                payload = b"".join(chunks)
-                self._set_update_progress(active=False, percent=100, downloaded=downloaded,
-                                          total=total, status="Unduhan selesai, memvalidasi file…")
+                payload = self._download_asset(asset["browser_download_url"])
+                self._set_update_progress(active=False, percent=100, downloaded=len(payload), total=len(payload),
+                                          status="Unduhan selesai, memvalidasi file…")
             except Exception:
                 self._set_update_progress(active=False, status="Unduhan gagal.")
                 raise
@@ -2670,7 +2939,7 @@ class Api:
 
     def run_speed_sample(self, mode):
         """Measure one bounded sample against Cloudflare's public speed-test endpoints."""
-        endpoint = "https://speed.cloudflare.com"
+        endpoint = SPEED_TEST_ENDPOINT
         if mode not in {"download", "upload", "latency"}:
             return {"success": False, "error": "Mode speed test tidak valid."}
 
