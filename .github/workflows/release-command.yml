@@ -166,19 +166,79 @@ jobs:
 
             const title = 'v' + tag;
             const previousTag = releases[0]?.tag_name || '';
-            let notes = 'Automated ' + mode + ' release for commit ' + context.sha.slice(0, 7) + '.\n\n';
-            if (previousTag) {
-              notes += 'Changes since ' + previousTag + '.\n\n';
-              try {
-                const generated = await github.rest.repos.generateReleaseNotes({
-                  owner, repo, tag_name: tag, target_commitish: sourceRef, previous_tag_name: previousTag
-                });
-                if (generated.data.body) notes += generated.data.body;
-              } catch (error) {
-                notes += 'Compare changes: https://github.com/' + owner + '/' + repo + '/compare/' + previousTag + '...' + tag;
+            // Rilis stabil dibandingkan dengan rilis stabil sebelumnya (semua perubahan beta ikut tercatat).
+            const baseTag = mode === 'stable' ? (stable[0]?.tag_name || previousTag) : previousTag;
+
+            // BEGIN release-notes-builder
+            const classifyCommit = (message) => {
+              const types = {
+                feat: 'new', feature: 'new', add: 'new',
+                fix: 'fix', bugfix: 'fix', hotfix: 'fix',
+                perf: 'changed', refactor: 'changed', style: 'changed', update: 'changed', change: 'changed', improve: 'changed',
+                docs: 'other', chore: 'other', ci: 'other', build: 'other', test: 'other', deps: 'other', revert: 'other', release: 'other', bump: 'other'
+              };
+              const prefix = message.match(/^(\w+)(?:\([^)]*\))?!?:\s*/);
+              if (prefix && types[prefix[1].toLowerCase()]) return types[prefix[1].toLowerCase()];
+              const first = (message.split(/\s+/)[0] || '').toLowerCase();
+              if (/^(fix|fixed|fixes|perbaiki|perbaikan|bugfix)$/.test(first)) return 'fix';
+              if (/^(add|added|new|tambah|tambahkan|baru)$/.test(first)) return 'new';
+              return 'changed';
+            };
+            const buildReleaseNotes = ({ mode, sha, baseTag, tag, owner, repo, commits, totalCommits }) => {
+              const groups = { new: [], fix: [], changed: [], other: [] };
+              for (const item of [...commits].reverse()) {
+                if ((item.parents || []).length > 1) continue;
+                const message = String((item.commit && item.commit.message) || '').split('\n')[0].trim();
+                if (!message || /^merge\b/i.test(message) || /stamp build version/i.test(message)) continue;
+                groups[classifyCommit(message)].push('* ' + message + ' (' + String(item.sha).slice(0, 7) + ')');
               }
-            } else {
-              notes += 'Automated build from the ' + sourceRef + ' branch.';
+              const sections = [['new', '✨ Baru'], ['fix', '🐛 Perbaikan'], ['changed', '🔄 Perubahan'], ['other', '🔧 Lainnya']];
+              let text = 'Automated ' + mode + ' release for commit ' + String(sha).slice(0, 7) + '.\n\n';
+              text += 'Changes since ' + baseTag + '.\n\n';
+              for (const [key, heading] of sections) {
+                if (groups[key].length) text += '## ' + heading + '\n' + groups[key].join('\n') + '\n\n';
+              }
+              if (totalCommits > commits.length) {
+                text += 'Menampilkan ' + commits.length + ' dari ' + totalCommits + ' commit.\n\n';
+              }
+              text += '**Full Changelog**: https://github.com/' + owner + '/' + repo + '/compare/' + baseTag + '...' + tag;
+              return text;
+            };
+            // END release-notes-builder
+
+            let notes = '';
+            if (baseTag) {
+              try {
+                const comparison = await github.request('GET /repos/{owner}/{repo}/compare/{basehead}', {
+                  owner, repo, basehead: baseTag + '...' + sourceSha, per_page: 100
+                });
+                const commits = comparison.data.commits || [];
+                if (commits.length) {
+                  notes = buildReleaseNotes({
+                    mode, sha: sourceSha, baseTag, tag, owner, repo,
+                    commits, totalCommits: comparison.data.total_commits || commits.length
+                  });
+                }
+              } catch (error) {
+                core.warning('Gagal membuat catatan rilis dari commit: ' + error.message);
+              }
+            }
+            if (!notes) {
+              // Cadangan: perilaku lama (catatan otomatis GitHub / tautan perbandingan).
+              notes = 'Automated ' + mode + ' release for commit ' + sourceSha.slice(0, 7) + '.\n\n';
+              if (previousTag) {
+                notes += 'Changes since ' + previousTag + '.\n\n';
+                try {
+                  const generated = await github.rest.repos.generateReleaseNotes({
+                    owner, repo, tag_name: tag, target_commitish: sourceRef, previous_tag_name: previousTag
+                  });
+                  if (generated.data.body) notes += generated.data.body;
+                } catch (error) {
+                  notes += 'Compare changes: https://github.com/' + owner + '/' + repo + '/compare/' + previousTag + '...' + tag;
+                }
+              } else {
+                notes += 'Automated build from the ' + sourceRef + ' branch.';
+              }
             }
 
             core.setOutput('mode', mode);
@@ -353,4 +413,3 @@ jobs:
             await github.rest.issues.createComment({
               owner, repo, issue_number: issueNumber, body
             });
-
