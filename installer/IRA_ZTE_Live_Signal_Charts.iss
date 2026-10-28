@@ -9,6 +9,10 @@
 AppId={{7F3E5E91-8D15-4B7C-AE61-1A2B3C4D5E6F}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
+; Judul tanpa nomor versi: tanpa AppVerName, Inno Setup memakai "{AppName} version {AppVersion}"
+; sebagai nama di Aplikasi Terpasang/Uninstall. Nomor versi tetap tampil di kolom Versi (AppVersion).
+AppVerName={#MyAppName}
+UninstallDisplayName={#MyAppName}
 AppPublisher=TheKingTermux
 ; Pasang per-pengguna (tanpa admin) agar updater di dalam aplikasi bisa
 ; menimpa EXE sendiri. Folder Program Files butuh hak admin sehingga
