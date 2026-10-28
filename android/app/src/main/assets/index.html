@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="id">
 <head>
@@ -41,6 +40,9 @@
             max-width: 100%;
             overflow: hidden;
         }
+        /* Kartu ping berada di dalam blok biasa (bukan baris flex), jadi lebar 0 dari
+           .chart-container membuat grafik tak terlihat. Modifier ini memberi lebar penuh. */
+        .chart-container.chart-full { flex: none; width: 100%; }
         .chart-container canvas {
             display: block;
             width: 100% !important;
@@ -197,7 +199,7 @@
                 <h2 id="ping-chart-title" class="text-xs font-bold text-cyan-400">📈 Ping Latency (1.1.1.1) — setiap 2 detik</h2>
                 <span id="ping-live-value" class="text-xs font-bold text-fuchsia-300">Menunggu ping…</span>
             </div>
-            <div class="chart-container h-20"><canvas id="chartPing"></canvas></div>
+            <div class="chart-container chart-full h-20"><canvas id="chartPing"></canvas></div>
         </div>
 
         <!-- Tower Information Panel (Added Cell ID 5G & Internet Status) -->
@@ -314,6 +316,7 @@
                 <p class="text-[10px] text-slate-500">Stable memakai release resmi; Beta mengizinkan prerelease. Hanya aset .apk yang akan dipilih.</p>
                 <button id="apk-check-btn" onclick="checkApkUpdate()" class="w-full bg-slate-800 text-white text-xs px-3 py-2 rounded-xl">Periksa Pembaruan APK</button>
                 <div id="apk-update-status" class="text-[10px] text-slate-400"></div>
+                <div id="apk-release-notes" class="hidden"></div>
                 <div id="apk-progress-panel" class="hidden space-y-1.5 rounded-lg border border-slate-800 bg-slate-950/70 p-2">
                     <div class="flex justify-between gap-2 text-[10px]"><span id="apk-progress-label">Menyiapkan unduhan…</span><span id="apk-progress-percent">0%</span></div>
                     <div class="h-2 overflow-hidden rounded-full bg-slate-800"><div id="apk-progress-bar" class="h-full w-0 rounded-full bg-cyan-500"></div></div>
@@ -405,7 +408,7 @@
                 <p>Dashboard telemetry real-time untuk router ZTE MC8501 5G, termasuk grafik kualitas sinyal, status tower/internet, riwayat koneksi, dan ping latency.</p>
                 <p>Updater APK menggunakan GitHub Releases. Stable dan Beta hanya mengunduh aset APK yang cocok.</p>
                 <p class="text-[10px] text-slate-500">Versi terpasang: <span id="about-version">Android app</span></p>
-                <a class="text-cyan-400 underline" href="https://github.com/TheKingTermux/ira-zte-live-signal-charts" target="_blank">GitHub Repository</a>
+                <a class="text-cyan-400 underline" href="https://github.com/TheKingTermux/ira-zte-live-signal-charts" target="_blank" onclick="return openExternalLink(this.href)">GitHub Repository</a>
                 <button onclick="exportDiagnosticLogs()" class="w-full bg-cyan-700 hover:bg-cyan-600 text-white text-xs font-bold px-3 py-2 rounded-xl">📄 Ekspor Log Debug</button>
                 <p id="export-status" class="text-[10px] text-slate-400 min-h-[14px] break-all"></p>
             </div>
@@ -602,6 +605,169 @@
             box.classList.toggle('scale-95', !opening);
             box.classList.toggle('scale-100', opening);
         }
+        // ===== Catatan rilis: Baru / Perbaikan / Perubahan / Lainnya =====
+        const RELEASE_GROUPS = [
+            { key: 'new', icon: '✨', title: 'Baru (New)', cls: 'text-emerald-300' },
+            { key: 'fix', icon: '🐛', title: 'Perbaikan (Fix)', cls: 'text-orange-300' },
+            { key: 'changed', icon: '🔄', title: 'Perubahan (Changed)', cls: 'text-cyan-300' },
+            { key: 'other', icon: '🔧', title: 'Lainnya', cls: 'text-slate-300' }
+        ];
+        const RELEASE_TYPE_MAP = {
+            feat: 'new', feature: 'new', add: 'new', new: 'new',
+            fix: 'fix', bugfix: 'fix', hotfix: 'fix',
+            perf: 'changed', refactor: 'changed', style: 'changed', update: 'changed', change: 'changed', improve: 'changed',
+            docs: 'other', chore: 'other', ci: 'other', build: 'other', test: 'other', deps: 'other', revert: 'other', release: 'other', bump: 'other'
+        };
+
+        function releaseHeadingKey(title) {
+            const t = String(title).toLowerCase().replace(/[^a-z\s']/g, ' ').replace(/\s+/g, ' ').trim();
+            if (/what'?s changed|changelog|ringkasan|summary/.test(t)) return null;
+            if (/\b(new|feature|features|baru|fitur)\b/.test(t)) return 'new';
+            if (/\b(fix|fixes|fixed|bug|bugs|perbaikan|perbaiki)\b/.test(t)) return 'fix';
+            if (/\b(changed|change|changes|perubahan|improve|improvement|improvements|update)\b/.test(t)) return 'changed';
+            if (/\b(other|others|lainnya|maintenance|pemeliharaan|chore|docs)\b/.test(t)) return 'other';
+            return null;
+        }
+
+        function parseReleaseNotes(body) {
+            const result = { groups: { new: [], fix: [], changed: [], other: [] }, intro: [], changelogUrl: null, since: null, total: 0 };
+            const lines = String(body || '').replace(/\r\n?/g, '\n').split('\n');
+            let headingKey = null;
+
+            const addItem = (rawText) => {
+                let text = rawText.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/`/g, '').replace(/\*\*/g, '').trim();
+                let author = null, ref = null;
+                const by = text.match(/^(.*?)\s+by\s+@([\w-]+)\s+in\s+(https?:\/\/\S+)\s*$/);
+                if (by) {
+                    text = by[1].trim();
+                    author = by[2];
+                    const pr = by[3].match(/\/pull\/(\d+)/);
+                    if (pr) ref = '#' + pr[1];
+                }
+                const sha = text.match(/\s*\(([0-9a-f]{7,10})\)\s*$/);
+                if (sha) {
+                    text = text.slice(0, sha.index).trim();
+                    if (!ref) ref = sha[1];
+                }
+                if (!text || /^merge\b/i.test(text) || /stamp build version/i.test(text) || /^automated\b/i.test(text)) return;
+
+                let key = headingKey;
+                const prefix = text.match(/^(\w+)(?:\([^)]*\))?!?:\s*(.*)$/);
+                if (prefix) {
+                    const typed = RELEASE_TYPE_MAP[prefix[1].toLowerCase()];
+                    if (typed) {
+                        if (!key) key = typed;
+                        text = prefix[2].trim();
+                    }
+                }
+                if (!key) {
+                    const first = (text.split(/\s+/)[0] || '').toLowerCase();
+                    if (/^(fix|fixed|fixes|perbaiki|perbaikan|bugfix)$/.test(first)) key = 'fix';
+                    else if (/^(add|added|new|tambah|tambahkan|baru)$/.test(first)) key = 'new';
+                    else key = 'changed';
+                }
+                if (!text) return;
+                text = text.charAt(0).toUpperCase() + text.slice(1);
+                result.groups[key].push({ text: text, author: author, ref: ref });
+                result.total++;
+            };
+
+            lines.forEach(raw => {
+                const line = raw.trim();
+                if (!line) return;
+                const full = line.match(/Full Changelog\*{0,2}:?\s*(https?:\/\/\S+)/i);
+                if (full) { result.changelogUrl = full[1]; return; }
+                const heading = line.match(/^#{1,6}\s*(.+)$/);
+                if (heading) { headingKey = releaseHeadingKey(heading[1]); return; }
+                const bullet = line.match(/^[*+-]\s+(.*)$/);
+                if (bullet) { addItem(bullet[1]); return; }
+                const since = line.match(/Changes since\s+(\S+?)\.?$/i);
+                if (since) { result.since = since[1]; return; }
+                result.intro.push(line);
+            });
+            return result;
+        }
+
+        function openExternalLink(url) {
+            // Tautan harus dibuka di peramban sistem, bukan menggantikan isi jendela aplikasi.
+            try {
+                if (window.AndroidBridge && typeof window.AndroidBridge.openUrl === 'function') { window.AndroidBridge.openUrl(url); return false; }
+                if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.open_url === 'function') { window.pywebview.api.open_url(url); return false; }
+            } catch (error) { console.error('Gagal membuka tautan:', error); }
+            return true;
+        }
+
+        function rnEl(tag, className, text) {
+            const node = document.createElement(tag);
+            if (className) node.className = className;
+            if (text !== undefined && text !== null) node.textContent = text;
+            return node;
+        }
+
+        function formatReleaseDate(iso) {
+            if (!iso) return '';
+            try {
+                return new Date(iso).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', dateStyle: 'medium', timeStyle: 'short' }) + ' WIB';
+            } catch (error) { return ''; }
+        }
+
+        // Semua teks dari rilis dimasukkan lewat textContent (bukan innerHTML) agar aman dari injeksi HTML.
+        function renderReleaseNotes(containerId, info) {
+            const box = document.getElementById(containerId);
+            if (!box) return;
+            box.textContent = '';
+            if (!info || !(info.tag_name || info.name)) { box.classList.add('hidden'); return; }
+            box.classList.remove('hidden');
+            const parsed = parseReleaseNotes(info.body);
+
+            const wrap = rnEl('div', 'rounded-lg border border-slate-800 bg-slate-950/60 p-2 space-y-2');
+            wrap.appendChild(rnEl('div', 'text-[11px] font-bold text-cyan-300', '📋 Catatan Rilis ' + (info.name || info.tag_name)));
+            const meta = [];
+            if (info.channel) meta.push(info.channel === 'beta' ? 'Beta' : 'Stable');
+            const when = formatReleaseDate(info.published_at);
+            if (when) meta.push(when);
+            if (parsed.since) meta.push('perubahan sejak ' + parsed.since);
+            if (meta.length) wrap.appendChild(rnEl('div', 'text-[10px] text-slate-500', meta.join(' · ')));
+
+            if (parsed.total === 0) {
+                const intro = parsed.intro.filter(line => !/^automated\b/i.test(line)).join(' ').trim();
+                wrap.appendChild(rnEl('div', 'text-[10px] text-slate-400', intro ? intro.slice(0, 400) : 'Rilis ini tidak mencantumkan rincian perubahan.'));
+            } else {
+                let shown = 0;
+                RELEASE_GROUPS.forEach(group => {
+                    const items = parsed.groups[group.key];
+                    if (!items.length) return;
+                    const section = rnEl('div', 'space-y-1');
+                    section.appendChild(rnEl('div', 'text-[10px] font-bold uppercase tracking-wider ' + group.cls, group.icon + ' ' + group.title + ' · ' + items.length));
+                    const list = rnEl('ul', 'list-disc pl-4 space-y-0.5 text-[10px] text-slate-300');
+                    items.forEach(item => {
+                        if (shown >= 60) return;
+                        shown++;
+                        const li = rnEl('li', '', item.text);
+                        if (item.ref) li.appendChild(rnEl('span', 'text-slate-500', ' ' + item.ref));
+                        list.appendChild(li);
+                    });
+                    section.appendChild(list);
+                    wrap.appendChild(section);
+                });
+                if (parsed.total > shown) wrap.appendChild(rnEl('div', 'text-[10px] text-slate-500', '…dan ' + (parsed.total - shown) + ' perubahan lainnya.'));
+            }
+
+            const link = info.html_url || parsed.changelogUrl;
+            if (link) {
+                const button = rnEl('button', 'w-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-semibold px-3 py-1.5 rounded-lg', 'Lihat selengkapnya di GitHub');
+                button.onclick = () => { openExternalLink(link); };
+                wrap.appendChild(button);
+            }
+            box.appendChild(wrap);
+        }
+
+        // Dipanggil oleh MainActivity setelah memeriksa rilis terbaru di GitHub.
+        window.onApkReleaseInfo = function(info) {
+            try { renderReleaseNotes('apk-release-notes', info); }
+            catch (error) { console.error('Gagal menampilkan catatan rilis:', error); }
+        };
+
         function checkApkUpdate() {
             const channel = document.getElementById('apk-release-channel').value;
             document.getElementById('apk-update-status').textContent = 'Memeriksa kanal ' + channel + '...';
