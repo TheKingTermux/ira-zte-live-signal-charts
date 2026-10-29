@@ -1441,7 +1441,7 @@ HTML_CONTENT = """
         };
         const INTERNET_CAUSES = {
             testserver: { icon: '🧪', title: 'Server uji tidak terjangkau (alarm palsu)', desc: 'Aplikasi menguji lewat 1.1.1.1. Jika situs lain masih bisa dibuka, internet sebenarnya normal.' },
-            quota: { icon: '📶', title: 'Kuota habis atau masa aktif berakhir', desc: 'Kartu masih tersambung ke tower, tetapi operator memblokir data.' },
+            quota: { icon: '📶', title: 'Diblokir', desc: 'Router masih tersambung ke tower, tetapi operator memblokir data. Silahkan kontak CS' },
             dns: { icon: '🌐', title: 'Gangguan DNS operator', desc: 'Nama situs gagal diterjemahkan ke alamat sehingga internet terasa mati padahal sinyal ada.' },
             upstream: { icon: '🔌', title: 'Jalur internet operator terganggu', desc: 'Gangguan di backbone atau gateway operator di luar tower, misalnya kabel atau perangkat jaringan inti.' },
             apn: { icon: '⚙️', title: 'Pengaturan APN atau profil data bermasalah', desc: 'Biasanya muncul setelah pengaturan router diubah atau di-reset.' },
