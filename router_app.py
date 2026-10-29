@@ -1460,7 +1460,7 @@ HTML_CONTENT = """
                 'Coba buka situs lain; jika bisa, kemungkinan hanya server uji yang bermasalah.',
                 'Restart router: cabut listrik 30 detik lalu nyalakan lagi.',
                 'Coba ganti DNS perangkat ke 8.8.8.8 atau 9.9.9.9.',
-                'Jika berlangsung lama, hubungi operator.'
+                'Jika berlangsung lama, hubungi CS.'
             ]
         };
         const signalHistory = [];
