@@ -1456,7 +1456,7 @@ HTML_CONTENT = """
                 'Jika lebih dari 30 menit, hubungi operator dan tanyakan gangguan di area Anda.'
             ],
             internet: [
-                'Cek sisa kuota dan masa aktif kartu.',
+                'Cek sisa masa aktif paket IRA.',
                 'Coba buka situs lain; jika bisa, kemungkinan hanya server uji yang bermasalah.',
                 'Restart router: cabut listrik 30 detik lalu nyalakan lagi.',
                 'Coba ganti DNS perangkat ke 8.8.8.8 atau 9.9.9.9.',
