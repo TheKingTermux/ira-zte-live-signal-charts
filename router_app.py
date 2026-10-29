@@ -1453,7 +1453,7 @@ HTML_CONTENT = """
                 'Cek apakah HP lain di lokasi yang sama juga kehilangan sinyal.',
                 'Restart router: cabut listrik 30 detik lalu nyalakan lagi.',
                 'Pindahkan router atau antena ke dekat jendela atau tempat yang lebih tinggi.',
-                'Jika lebih dari 30 menit, hubungi operator dan tanyakan gangguan di area Anda.'
+                'Jika lebih dari 30 menit, hubungi CS dan tanyakan gangguan di area Anda.'
             ],
             internet: [
                 'Cek sisa masa aktif paket IRA.',
