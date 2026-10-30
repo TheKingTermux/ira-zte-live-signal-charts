@@ -29,6 +29,7 @@ Aplikasi saat ini dikonfigurasi untuk mengakses router melalui `http://192.168.0
 <img width="1088" height="797" alt="2026-10-30 11_02_00-router_app py - Visual Studio Code" src="https://github.com/user-attachments/assets/d0acdf62-9df2-438d-b799-e8817a2ddd19" />
 <img width="1084" height="794" alt="2026-10-30 11_01_51-router_app py - Visual Studio Code" src="https://github.com/user-attachments/assets/253c7dbd-858a-4aac-8a5f-0b3cee14728f" />
 <img width="1086" height="793" alt="2026-10-30 11_01_38-IRA ZTE MC8501 5G LIVE SIGNAL CHARTS" src="https://github.com/user-attachments/assets/0ed0a05b-9b48-45e5-bc89-bbb1b4a29a86" />
+<img width="1087" height="796" alt="2026-10-31 00_33_13-Settings" src="https://github.com/user-attachments/assets/c503c60b-8b27-4d0d-8c11-72b5e0044cc5" />
 <img width="1081" height="757" alt="Tampilan dashboard dan grafik sinyal" src="https://github.com/user-attachments/assets/2fdc4022-4dec-43ed-b3fe-48f25b56d035" />
 
 ## Fitur
