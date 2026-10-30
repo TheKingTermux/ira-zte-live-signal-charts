@@ -2,6 +2,8 @@ package com.thekingtermux.iraztelivesignalcharts
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.content.Intent
 import android.content.ClipData
 import android.content.ContentValues
@@ -14,6 +16,7 @@ import android.provider.Settings
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebView
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebViewClient
 import androidx.core.content.FileProvider
 import org.json.JSONArray
@@ -36,17 +39,56 @@ class MainActivity : Activity() {
     private lateinit var webView: WebView
     private val repository = "TheKingTermux/ira-zte-live-signal-charts"
 
+    // True bila proses renderer WebView dimatikan sistem; saat itu WebView lama tak bisa dipakai lagi.
+    private var rendererGone = false
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Latar gelap sejak awal agar tidak ada kilatan putih sebelum splash screen tampil.
+        window.setBackgroundDrawable(ColorDrawable(Color.parseColor("#020617")))
         webView = WebView(this)
+        webView.setBackgroundColor(Color.parseColor("#020617"))
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
         webView.webChromeClient = WebChromeClient()
-        webView.webViewClient = WebViewClient()
+        webView.webViewClient = object : WebViewClient() {
+            // Renderer dimatikan sistem (mis. memori rendah saat aplikasi di latar belakang): buat ulang
+            // WebView dengan mulus. Tanpa penanganan ini aplikasi ikut crash dan dibuka dari awal.
+            override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                rendererGone = true
+                runOnUiThread { recreate() }
+                return true
+            }
+        }
         webView.addJavascriptInterface(RouterBridge(), "AndroidBridge")
         setContentView(webView)
-        webView.loadUrl("file:///android_asset/index.html")
+        // Muat halaman hanya bila belum ada state yang bisa dipulihkan (mis. setelah proses dibunuh sistem).
+        if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
+            webView.loadUrl("file:///android_asset/index.html")
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        if (!rendererGone) webView.saveState(outState)
+    }
+
+    // launchMode singleTask: membuka aplikasi dari ikon/aplikasi lain hanya membawa Activity ke depan.
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        webView.onResume()
+        // Segarkan data langsung saat kembali dari aplikasi lain, tanpa memuat ulang halaman.
+        webView.evaluateJavascript("window.onAppResume && window.onAppResume();", null)
+    }
+
+    override fun onPause() {
+        webView.onPause()
+        super.onPause()
     }
 
     override fun onBackPressed() {
@@ -79,23 +121,28 @@ class MainActivity : Activity() {
         runOnUiThread { webView.evaluateJavascript(script, null) }
     }
 
+    // Hasil pemeriksaan update dikirim ke halaman (window.onApkUpdateResult di index.html).
+    private fun updateResultToJs(result: JSONObject) {
+        val script = "window.onApkUpdateResult && window.onApkUpdateResult($result);"
+        runOnUiThread { webView.evaluateJavascript(script, null) }
+    }
+
+    // Progres unduhan untuk modal update (window.onApkDownloadProgress di index.html).
     private fun progress(percent: Double, downloaded: Long, total: Long, speed: Long, eta: Long) {
-        val percentJs = if (percent < 0) "null" else percent.toString()
-        val script = """
-            (function() {
-              const panel = document.getElementById('apk-progress-panel');
-              if (!panel) return;
-              panel.classList.remove('hidden');
-              const p = $percentJs;
-              document.getElementById('apk-progress-label').textContent = 'Mengunduh APK…';
-              document.getElementById('apk-progress-percent').textContent = p === null ? '—' : Math.floor(p) + '%';
-              document.getElementById('apk-progress-bar').style.width = (p === null ? 0 : p) + '%';
-              const fmt = n => { if (!n) return '0 B'; const u = ['B','KB','MB','GB']; let i=0,v=n; while(v>=1024&&i<u.length-1){v/=1024;i++;} return (i===0?Math.round(v):v.toFixed(1))+' '+u[i]; };
-              const eta = $eta;
-              const etaText = eta < 0 ? 'menghitung…' : eta < 60 ? eta + ' dtk' : Math.floor(eta/60)+' m '+(eta%60)+' dtk';
-              document.getElementById('apk-progress-details').textContent = fmt($downloaded) + ' / ' + ($total > 0 ? fmt($total) : 'ukuran tidak diketahui') + ' · ' + fmt($speed) + '/dtk · Sisa ' + etaText;
-            })();
-        """.trimIndent()
+        val json = JSONObject().apply {
+            put("percent", percent)
+            put("downloaded", downloaded)
+            put("total", total)
+            put("speed", speed)
+            put("eta", eta)
+        }
+        val script = "window.onApkDownloadProgress && window.onApkDownloadProgress($json);"
+        runOnUiThread { webView.evaluateJavascript(script, null) }
+    }
+
+    // Hasil akhir unduhan/pemasangan untuk modal update (window.onApkDownloadDone di index.html).
+    private fun downloadDone(ok: Boolean, message: String) {
+        val script = "window.onApkDownloadDone && window.onApkDownloadDone($ok, ${JSONObject.quote(message)});"
         runOnUiThread { webView.evaluateJavascript(script, null) }
     }
 
@@ -141,25 +188,12 @@ class MainActivity : Activity() {
         val name: String = "",
         val body: String = "",
         val publishedAt: String = "",
-        val htmlUrl: String = ""
+        val htmlUrl: String = "",
+        val size: Long = 0L
     )
 
     // JSONObject.optString mengembalikan teks "null" untuk nilai JSON null, jadi ditangani terpisah.
     private fun JSONObject.stringOrEmpty(key: String): String = if (isNull(key)) "" else optString(key, "")
-
-    // Mengirim catatan rilis ke halaman (window.onApkReleaseInfo di index.html).
-    private fun releaseInfoToJs(release: ApkRelease, channel: String) {
-        val json = JSONObject().apply {
-            put("tag_name", release.version)
-            put("name", release.name)
-            put("body", release.body)
-            put("published_at", release.publishedAt)
-            put("html_url", release.htmlUrl)
-            put("channel", channel)
-        }
-        val script = "window.onApkReleaseInfo && window.onApkReleaseInfo($json);"
-        runOnUiThread { webView.evaluateJavascript(script, null) }
-    }
 
     private fun latestApk(channel: String): ApkRelease {
         val normalizedChannel = if (channel.equals("beta", true)) "beta" else "stable"
@@ -197,7 +231,8 @@ class MainActivity : Activity() {
                             name = release.stringOrEmpty("name"),
                             body = release.stringOrEmpty("body"),
                             publishedAt = release.stringOrEmpty("published_at"),
-                            htmlUrl = release.stringOrEmpty("html_url")
+                            htmlUrl = release.stringOrEmpty("html_url"),
+                            size = asset.optLong("size")
                         )
                     }
                 }
@@ -380,6 +415,7 @@ class MainActivity : Activity() {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
                     startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
                     status("APK diunduh. Izinkan pemasangan dari sumber ini, lalu coba lagi.")
+                    downloadDone(false, "APK sudah diunduh. Izinkan pemasangan dari sumber ini di layar yang terbuka, lalu kembali ke aplikasi dan tekan Coba lagi.")
                     return@runOnUiThread
                 }
                 val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apk)
@@ -389,7 +425,11 @@ class MainActivity : Activity() {
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
                     })
                     status("APK siap dipasang. Ikuti konfirmasi Android.")
-                } catch (e: Exception) { status("Gagal membuka pemasang: ${e.localizedMessage}") }
+                    downloadDone(true, "Unduhan selesai. Ikuti layar pemasangan Android untuk menyelesaikan pembaruan.")
+                } catch (e: Exception) {
+                    status("Gagal membuka pemasang: ${e.localizedMessage}")
+                    downloadDone(false, "Gagal membuka pemasang: ${e.localizedMessage ?: e.javaClass.simpleName}")
+                }
             }
     }
 
@@ -400,11 +440,33 @@ class MainActivity : Activity() {
             Thread {
                 try {
                     val release = latestApk(selectedChannel)
-                    releaseInfoToJs(release, selectedChannel)
                     val current = installedVersion()
-                    if (newer(release.version, current)) status("Update ${selectedChannel.uppercase()} tersedia: ${release.version} (terpasang: $current).", true)
-                    else status("Aplikasi sudah terbaru untuk kanal ${selectedChannel.uppercase()} ($current). Release: ${release.version}.")
-                } catch (e: Exception) { status("Gagal memeriksa update: ${e.localizedMessage ?: "kesalahan jaringan"}") }
+                    val isNewer = newer(release.version, current)
+                    val label = selectedChannel.uppercase()
+                    status(
+                        if (isNewer) "Update $label tersedia: ${release.version} (terpasang: $current)."
+                        else "Aplikasi sudah terbaru untuk kanal $label ($current). Release: ${release.version}."
+                    )
+                    updateResultToJs(JSONObject().apply {
+                        put("update_available", isNewer)
+                        put("current_version", current)
+                        put("tag_name", release.version)
+                        put("name", release.name)
+                        put("body", release.body)
+                        put("published_at", release.publishedAt)
+                        put("html_url", release.htmlUrl)
+                        put("channel", selectedChannel)
+                        put("asset_size", release.size)
+                        put("message", if (isNewer) "Update tersedia." else "Aplikasi sudah menggunakan versi terbaru untuk kanal $label.")
+                    })
+                } catch (e: Exception) {
+                    val message = "Gagal memeriksa update: ${e.localizedMessage ?: "kesalahan jaringan"}"
+                    status(message)
+                    updateResultToJs(JSONObject().apply {
+                        put("update_available", false)
+                        put("error", message)
+                    })
+                }
             }.start()
         }
 
@@ -414,9 +476,18 @@ class MainActivity : Activity() {
             Thread {
                 try {
                     val release = latestApk(selectedChannel)
-                    if (!newer(release.version, installedVersion())) { status("Tidak ada APK ${selectedChannel.uppercase()} yang lebih baru."); return@Thread }
+                    if (!newer(release.version, installedVersion())) {
+                        val message = "Tidak ada APK ${selectedChannel.uppercase()} yang lebih baru."
+                        status(message)
+                        downloadDone(false, message)
+                        return@Thread
+                    }
                     installApk(release)
-                } catch (e: Exception) { status("Gagal mengunduh APK: ${e.localizedMessage ?: "kesalahan jaringan"}") }
+                } catch (e: Exception) {
+                    val message = "Gagal mengunduh APK: ${e.localizedMessage ?: "kesalahan jaringan"}"
+                    status(message)
+                    downloadDone(false, message)
+                }
             }.start()
         }
 
