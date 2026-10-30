@@ -166,19 +166,79 @@ jobs:
 
             const title = 'v' + tag;
             const previousTag = releases[0]?.tag_name || '';
-            let notes = 'Automated ' + mode + ' release for commit ' + context.sha.slice(0, 7) + '.\n\n';
-            if (previousTag) {
-              notes += 'Changes since ' + previousTag + '.\n\n';
-              try {
-                const generated = await github.rest.repos.generateReleaseNotes({
-                  owner, repo, tag_name: tag, target_commitish: sourceRef, previous_tag_name: previousTag
-                });
-                if (generated.data.body) notes += generated.data.body;
-              } catch (error) {
-                notes += 'Compare changes: https://github.com/' + owner + '/' + repo + '/compare/' + previousTag + '...' + tag;
+            // Rilis stabil dibandingkan dengan rilis stabil sebelumnya (semua perubahan beta ikut tercatat).
+            const baseTag = mode === 'stable' ? (stable[0]?.tag_name || previousTag) : previousTag;
+
+            // BEGIN release-notes-builder
+            const classifyCommit = (message) => {
+              const types = {
+                feat: 'new', feature: 'new', add: 'new',
+                fix: 'fix', bugfix: 'fix', hotfix: 'fix',
+                perf: 'changed', refactor: 'changed', style: 'changed', update: 'changed', change: 'changed', improve: 'changed',
+                docs: 'other', chore: 'other', ci: 'other', build: 'other', test: 'other', deps: 'other', revert: 'other', release: 'other', bump: 'other'
+              };
+              const prefix = message.match(/^(\w+)(?:\([^)]*\))?!?:\s*/);
+              if (prefix && types[prefix[1].toLowerCase()]) return types[prefix[1].toLowerCase()];
+              const first = (message.split(/\s+/)[0] || '').toLowerCase();
+              if (/^(fix|fixed|fixes|perbaiki|perbaikan|bugfix)$/.test(first)) return 'fix';
+              if (/^(add|added|new|tambah|tambahkan|baru)$/.test(first)) return 'new';
+              return 'changed';
+            };
+            const buildReleaseNotes = ({ mode, sha, baseTag, tag, owner, repo, commits, totalCommits }) => {
+              const groups = { new: [], fix: [], changed: [], other: [] };
+              for (const item of [...commits].reverse()) {
+                if ((item.parents || []).length > 1) continue;
+                const message = String((item.commit && item.commit.message) || '').split('\n')[0].trim();
+                if (!message || /^merge\b/i.test(message) || /stamp build version/i.test(message)) continue;
+                groups[classifyCommit(message)].push('* ' + message + ' (' + String(item.sha).slice(0, 7) + ')');
               }
-            } else {
-              notes += 'Automated build from the ' + sourceRef + ' branch.';
+              const sections = [['new', '✨ Baru'], ['fix', '🐛 Perbaikan'], ['changed', '🔄 Perubahan'], ['other', '🔧 Lainnya']];
+              let text = 'Automated ' + mode + ' release for commit ' + String(sha).slice(0, 7) + '.\n\n';
+              text += 'Changes since ' + baseTag + '.\n\n';
+              for (const [key, heading] of sections) {
+                if (groups[key].length) text += '## ' + heading + '\n' + groups[key].join('\n') + '\n\n';
+              }
+              if (totalCommits > commits.length) {
+                text += 'Menampilkan ' + commits.length + ' dari ' + totalCommits + ' commit.\n\n';
+              }
+              text += '**Full Changelog**: https://github.com/' + owner + '/' + repo + '/compare/' + baseTag + '...' + tag;
+              return text;
+            };
+            // END release-notes-builder
+
+            let notes = '';
+            if (baseTag) {
+              try {
+                const comparison = await github.request('GET /repos/{owner}/{repo}/compare/{basehead}', {
+                  owner, repo, basehead: baseTag + '...' + sourceSha, per_page: 100
+                });
+                const commits = comparison.data.commits || [];
+                if (commits.length) {
+                  notes = buildReleaseNotes({
+                    mode, sha: sourceSha, baseTag, tag, owner, repo,
+                    commits, totalCommits: comparison.data.total_commits || commits.length
+                  });
+                }
+              } catch (error) {
+                core.warning('Gagal membuat catatan rilis dari commit: ' + error.message);
+              }
+            }
+            if (!notes) {
+              // Cadangan: perilaku lama (catatan otomatis GitHub / tautan perbandingan).
+              notes = 'Automated ' + mode + ' release for commit ' + sourceSha.slice(0, 7) + '.\n\n';
+              if (previousTag) {
+                notes += 'Changes since ' + previousTag + '.\n\n';
+                try {
+                  const generated = await github.rest.repos.generateReleaseNotes({
+                    owner, repo, tag_name: tag, target_commitish: sourceRef, previous_tag_name: previousTag
+                  });
+                  if (generated.data.body) notes += generated.data.body;
+                } catch (error) {
+                  notes += 'Compare changes: https://github.com/' + owner + '/' + repo + '/compare/' + previousTag + '...' + tag;
+                }
+              } else {
+                notes += 'Automated build from the ' + sourceRef + ' branch.';
+              }
             }
 
             core.setOutput('mode', mode);
@@ -271,11 +331,18 @@ jobs:
 
 
   cleanup-build-branch:
-    needs: [prepare, publish]
-    if: needs.publish.result == 'success' && needs.prepare.outputs.source_ref != ''
+    # Selalu jalan setelah semua job build/publish selesai (sukses MAUPUN gagal) agar cabang
+    # sementara tidak tertinggal. Hanya untuk perintah /build yang valid.
+    needs: [prepare, build-exe, build-apk, publish]
+    if: >-
+      always() &&
+      needs.prepare.result != 'skipped' &&
+      github.event.comment.user.login == github.repository_owner &&
+      contains(fromJSON('["/build beta","/build stable"]'), github.event.comment.body)
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
+      actions: read
     steps:
       - name: Generate Bot Token
         id: get_bug_bot_token
@@ -284,24 +351,86 @@ jobs:
           client-id: ${{ secrets.BOT_APP_ID }}
           private-key: ${{ secrets.BOT_PRIVATE_KEY }}
           permission-contents: write
-      - name: Delete temporary build branch
+      - name: Delete temporary build branches
         uses: actions/github-script@v7
         env:
           BUILD_BRANCH: ${{ needs.prepare.outputs.source_ref }}
+          RUN_TOKEN: ${{ github.token }}
         with:
           github-token: ${{ steps.get_bug_bot_token.outputs.token }}
           script: |
             const { owner, repo } = context.repo;
-            const branch = process.env.BUILD_BRANCH;
-            if (!branch.startsWith('automation/build-')) {
-              throw new Error('Refusing to delete a branch outside automation/build-*: ' + branch);
+            const PREFIX = 'automation/build-';
+            const runSuffix = '-' + context.runId;
+            const known = process.env.BUILD_BRANCH || '';
+            // Status workflow run dibaca dengan GITHUB_TOKEN (izin actions: read).
+            const runKit = getOctokit(process.env.RUN_TOKEN);
+            const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+            // Path dibuat manual agar karakter "/" pada nama cabang tidak ikut ter-encode di URL.
+            const refPath = (name) => '/repos/' + owner + '/' + repo + '/git/refs/heads/' + name;
+
+            const deleteBranch = async (name) => {
+              if (!name.startsWith(PREFIX)) {
+                throw new Error('Refusing to delete a branch outside automation/build-*: ' + name);
+              }
+              for (let attempt = 1; attempt <= 3; attempt++) {
+                try {
+                  await github.request('DELETE ' + refPath(name));
+                  core.info('Deleted temporary build branch: ' + name);
+                  return true;
+                } catch (error) {
+                  if (error.status === 404 || error.status === 422) {
+                    core.info('Branch already gone: ' + name);
+                    return true;
+                  }
+                  core.warning('Attempt ' + attempt + '/3 failed for ' + name + ': HTTP ' + error.status + ' ' + error.message);
+                  if (attempt < 3) await sleep(2000 * attempt);
+                }
+              }
+              return false;
+            };
+
+            // Kumpulkan semua cabang sementara (termasuk sisa dari build yang gagal sebelumnya).
+            let names = [];
+            try {
+              const branches = await github.paginate(github.rest.repos.listBranches, { owner, repo, per_page: 100 });
+              names = branches.map(branch => branch.name).filter(name => name.startsWith(PREFIX));
+            } catch (error) {
+              core.warning('Gagal membaca daftar cabang: ' + error.message);
+              if (known) names = [known];
             }
-            await github.rest.git.deleteRef({
-              owner,
-              repo,
-              ref: 'heads/' + branch
-            });
-            core.info('Deleted temporary build branch: ' + branch);
+            if (known && !names.includes(known)) names.push(known);
+
+            const failed = [];
+            for (const name of names) {
+              // Cabang run ini sendiri: hapus pasti (workflow ini sudah selesai memakainya).
+              const isCurrent = name === known || name.endsWith(runSuffix);
+              if (!isCurrent) {
+                const match = name.match(/-(\d+)$/);
+                if (!match) {
+                  core.info('Skip (nama tidak dikenali): ' + name);
+                  continue;
+                }
+                try {
+                  const run = await runKit.rest.actions.getWorkflowRun({ owner, repo, run_id: Number(match[1]) });
+                  if (run.data.status !== 'completed') {
+                    core.info('Skip (build lain masih berjalan): ' + name);
+                    continue;
+                  }
+                } catch (error) {
+                  if (error.status !== 404) {
+                    core.warning('Skip (status run tidak bisa dibaca): ' + name + ': ' + error.message);
+                    continue;
+                  }
+                  // Run sudah dihapus: cabangnya yatim, aman dihapus.
+                }
+              }
+              if (!(await deleteBranch(name))) failed.push(name);
+            }
+            if (failed.length) {
+              core.setFailed('Gagal menghapus cabang sementara: ' + failed.join(', ') + '. Periksa izin Contents: write pada GitHub App dan aturan perlindungan cabang.');
+            }
 
   report-failure:
     if: >-
@@ -353,4 +482,3 @@ jobs:
             await github.rest.issues.createComment({
               owner, repo, issue_number: issueNumber, body
             });
-

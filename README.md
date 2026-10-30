@@ -10,7 +10,7 @@ Aplikasi desktop untuk memantau telemetri sinyal 5G dari router **ZTE MC8501** s
 >
 > Proyek ini merupakan proyek **independen untuk eksperimen, pemantauan, dan penggunaan pribadi**. Repositori ini **tidak berafiliasi, tidak disponsori, tidak didukung, tidak dikelola, dan tidak mewakili** merek, perusahaan, badan usaha, penyedia layanan internet, atau organisasi mana pun.
 >
-> Secara khusus, proyek ini **bukan produk resmi, bukan aplikasi resmi, dan bukan bagian dari IRA Internet Rakyat maupun PT. Telemedia Komunikasi Pratama**. Penyebutan nama “IRA”, “Internet Rakyat”, “ZTE”, “MC8501”, atau nama dan merek lain di dalam repositori ini hanya digunakan untuk menjelaskan konteks teknis, perangkat yang kompatibel, atau lingkungan pengujian. Penyebutan tersebut tidak menyatakan adanya hubungan bisnis, kemitraan, dukungan, persetujuan, atau pengesahan dari pemilik merek atau pihak terkait.
+> Secara khusus, proyek ini **bukan produk resmi, bukan aplikasi resmi, dan bukan bagian dari IRA (Internet Rakyat), ZTE Corporation maupun PT. Telemedia Komunikasi Pratama**. Penyebutan nama “IRA”, “Internet Rakyat”, “ZTE”, “MC8501”, atau nama dan merek lain di dalam repositori ini hanya digunakan untuk menjelaskan konteks teknis, perangkat yang kompatibel, atau lingkungan pengujian. Penyebutan tersebut tidak menyatakan adanya hubungan bisnis, kemitraan, dukungan, persetujuan, atau pengesahan dari pemilik merek atau pihak terkait.
 >
 > Aplikasi ini dibuat dan dipelihara secara mandiri oleh pengembang repositori ini. Aplikasi ini tidak dimaksudkan untuk menjadi kanal dukungan pelanggan, alat resmi penyedia layanan, aplikasi konfigurasi resmi, atau pengganti perangkat lunak maupun layanan yang disediakan oleh produsen perangkat dan penyedia layanan internet.
 >
@@ -22,7 +22,13 @@ Aplikasi desktop untuk memantau telemetri sinyal 5G dari router **ZTE MC8501** s
 
 Aplikasi saat ini dikonfigurasi untuk mengakses router melalui `http://192.168.0.1`. Jika alamat IP lokal router berbeda, sesuaikan alamat tersebut di `router_app.py`.
 
+
+
+<img width="1087" height="795" alt="2026-10-30 11_12_59-router_app py - Visual Studio Code" src="https://github.com/user-attachments/assets/0deb9917-8085-4e3d-b238-97e29c362188" />
 <img width="1084" height="792" alt="Tampilan IRA ZTE MC8501 5G Live Signal Charts" src="https://github.com/user-attachments/assets/de1c79b4-055d-42e5-abd8-5003385a4fb9" />
+<img width="1088" height="797" alt="2026-10-30 11_02_00-router_app py - Visual Studio Code" src="https://github.com/user-attachments/assets/d0acdf62-9df2-438d-b799-e8817a2ddd19" />
+<img width="1084" height="794" alt="2026-10-30 11_01_51-router_app py - Visual Studio Code" src="https://github.com/user-attachments/assets/253c7dbd-858a-4aac-8a5f-0b3cee14728f" />
+<img width="1086" height="793" alt="2026-10-30 11_01_38-IRA ZTE MC8501 5G LIVE SIGNAL CHARTS" src="https://github.com/user-attachments/assets/0ed0a05b-9b48-45e5-bc89-bbb1b4a29a86" />
 <img width="1081" height="757" alt="Tampilan dashboard dan grafik sinyal" src="https://github.com/user-attachments/assets/2fdc4022-4dec-43ed-b3fe-48f25b56d035" />
 
 ## Fitur
@@ -169,7 +175,7 @@ Ambang batas tersebut merupakan acuan bawaan untuk membantu membaca kondisi siny
 
 ## Status proyek
 
-Proyek ini terutama ditujukan untuk pemantauan pribadi router ZTE MC8501. Perubahan firmware dapat memengaruhi endpoint internal maupun kolom telemetri yang dikembalikan perangkat. Proyek ini dikelola secara independen dan bukan perangkat lunak resmi dari produsen router atau penyedia layanan internet.
+Proyek ini terutama ditujukan untuk pemantauan pribadi router IRA (Internet Rakyat) ZTE MC8501. Perubahan firmware dapat memengaruhi endpoint internal maupun kolom telemetri yang dikembalikan perangkat. Proyek ini dikelola secara independen dan bukan perangkat lunak resmi dari produsen router atau penyedia layanan internet.
 
 ## Lisensi dan penggunaan ulang
 
@@ -177,4 +183,4 @@ Repositori ini belum menetapkan lisensi perangkat lunak. Sampai lisensi ditambah
 
 ---
 
-Jika menemukan masalah atau ingin mengusulkan perubahan, silakan gunakan [Issues](https://github.com/TheKingTermux/ira-zte-live-signal-charts/issues). Harap diingat bahwa repositori ini merupakan proyek independen; kanal tersebut bukan layanan dukungan resmi IRA Internet Rakyat, PT. Telemedia Komunikasi Pratama, atau ZTE.
+Jika menemukan masalah atau ingin mengusulkan perubahan, silakan gunakan [Issues](https://github.com/TheKingTermux/ira-zte-live-signal-charts/issues). Harap diingat bahwa repositori ini merupakan proyek independen; kanal tersebut bukan layanan dukungan resmi IRA (Internet Rakyat), PT. Telemedia Komunikasi Pratama, atau ZTE Corporation.
