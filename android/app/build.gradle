@@ -24,7 +24,7 @@ android {
         minSdk 23
         targetSdk 35
         versionCode = (project.findProperty('androidVersionCode') ?: '1').toString().toInteger()
-        versionName = (project.findProperty('androidVersionName') ?: '1.0').toString()
+        versionName "1.1-dev.9"
     }
 
     buildTypes {
