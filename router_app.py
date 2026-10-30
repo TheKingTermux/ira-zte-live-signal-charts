@@ -10,7 +10,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-APP_VERSION = "1.1-dev.3"
+APP_VERSION = "1.1-dev.10"
 SPEED_TEST_ENDPOINT = "https://speed.cloudflare.com"
 GITHUB_REPOSITORY = "TheKingTermux/ira-zte-live-signal-charts"
 GITHUB_RELEASES_API = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/releases?per_page=30"
