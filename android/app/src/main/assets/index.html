@@ -1414,7 +1414,7 @@
         // Aplikasi tidak bisa mengetahui penyebab pastinya. Perkiraan dibuat dari pola
         // sinyal sebelum gangguan (melemah bertahap vs putus mendadak) dan dari ping
         // ke Cloudflare, lalu ditampilkan sebagai "kemungkinan", bukan diagnosis.
-        const TOWER_CAUSES = {
+const TOWER_CAUSES = {
             weather: { icon: '🌧️', title: 'Cuaca ekstrem', desc: 'Hujan lebat, badai, atau petir meredam sinyal dan bisa mengganggu perangkat tower.' },
             overheat: { icon: '🌡️', title: 'Pemancar overheat', desc: 'Perangkat pemancar (BTS) terlalu panas, misalnya pendingin gagal, lalu menurunkan daya atau mati sementara.' },
             power: { icon: '⚡', title: 'Listrik atau baterai tower bermasalah', desc: 'Pemadaman listrik di lokasi tower dan baterai cadangan sudah habis.' },
@@ -1426,7 +1426,7 @@
         };
         const INTERNET_CAUSES = {
             testserver: { icon: '🧪', title: 'Server uji tidak terjangkau (alarm palsu)', desc: 'Aplikasi menguji lewat 1.1.1.1. Jika situs lain masih bisa dibuka, internet sebenarnya normal.' },
-            quota: { icon: '📶', title: 'Kuota habis atau masa aktif berakhir', desc: 'Kartu masih tersambung ke tower, tetapi operator memblokir data.' },
+            quota: { icon: '📶', title: 'Indikasi Diblokir', desc: 'Router masih tersambung ke tower, tetapi operator memblokir data. Silahkan kontak CS' },
             dns: { icon: '🌐', title: 'Gangguan DNS operator', desc: 'Nama situs gagal diterjemahkan ke alamat sehingga internet terasa mati padahal sinyal ada.' },
             upstream: { icon: '🔌', title: 'Jalur internet operator terganggu', desc: 'Gangguan di backbone atau gateway operator di luar tower, misalnya kabel atau perangkat jaringan inti.' },
             apn: { icon: '⚙️', title: 'Pengaturan APN atau profil data bermasalah', desc: 'Biasanya muncul setelah pengaturan router diubah atau di-reset.' },
@@ -1438,14 +1438,14 @@
                 'Cek apakah HP lain di lokasi yang sama juga kehilangan sinyal.',
                 'Restart router: cabut listrik 30 detik lalu nyalakan lagi.',
                 'Pindahkan router atau antena ke dekat jendela atau tempat yang lebih tinggi.',
-                'Jika lebih dari 30 menit, hubungi operator dan tanyakan gangguan di area Anda.'
+                'Jika lebih dari 30 menit, hubungi CS dan tanyakan gangguan di area Anda.'
             ],
             internet: [
-                'Cek sisa kuota dan masa aktif kartu.',
+                'Cek sisa masa aktif paket IRA.',
                 'Coba buka situs lain; jika bisa, kemungkinan hanya server uji yang bermasalah.',
                 'Restart router: cabut listrik 30 detik lalu nyalakan lagi.',
                 'Coba ganti DNS perangkat ke 8.8.8.8 atau 9.9.9.9.',
-                'Jika berlangsung lama, hubungi operator.'
+                'Jika berlangsung lama, hubungi CS.'
             ]
         };
         const signalHistory = [];
