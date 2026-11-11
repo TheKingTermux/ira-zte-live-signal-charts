@@ -3,8 +3,9 @@
 Aplikasi Desktop dan Android untuk memantau telemetri jaringan **ZTE MC8501 5G** secara langsung. Dashboard menampilkan metrik radio, status router dan internet, grafik ping, riwayat koneksi, serta berbagai alat diagnostik dan pembaruan aplikasi.
 
 <p align="center">
-  <a href="#instalasi"><img src="https://img.shields.io/badge/Unduh-1976D2?style=for-the-badge&logo=github&logoColor=white" alt="Unduh"></a>
-  <a href="https://github.com/TheKingTermux/ira-zte-live-signal-charts/releases"><img src="https://img.shields.io/github/v/release/TheKingTermux/ira-zte-live-signal-charts?include_prereleases&label=Release" alt="GitHub Release"></a>
+  <a href="#instalasi"><img src="https://img.shields.io/badge/Unduh-1976D2?style=for-the-badge&logo=github&logoColor=white" alt="Unduh"></a><br>
+  <a href="https://github.com/TheKingTermux/ira-zte-live-signal-charts/releases/latest"><img src="https://img.shields.io/github/v/release/TheKingTermux/ira-zte-live-signal-charts?label=Latest" alt="GitHub Stable Release"></a>
+  <a href="https://github.com/TheKingTermux/ira-zte-live-signal-charts/releases"><img src="https://img.shields.io/github/v/release/TheKingTermux/ira-zte-live-signal-charts?include_prereleases&label=Beta" alt="GitHub Beta Release"></a>
 </p>
 
 > [!IMPORTANT]
