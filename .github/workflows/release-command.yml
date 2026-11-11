@@ -363,9 +363,25 @@ jobs:
             const PREFIX = 'automation/build-';
             const runSuffix = '-' + context.runId;
             const known = process.env.BUILD_BRANCH || '';
-            // Status workflow run dibaca dengan GITHUB_TOKEN (izin actions: read).
-            const runKit = getOctokit(process.env.RUN_TOKEN);
             const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+            // Catatan: github-script v7 hanya menyediakan github, context, core, exec, glob, io, dan require.
+            // getOctokit TIDAK tersedia, jadi status workflow run dibaca langsung dengan fetch (Node 20)
+            // memakai GITHUB_TOKEN yang punya izin actions: read.
+            const runStatus = async (runId) => {
+              const response = await fetch('https://api.github.com/repos/' + owner + '/' + repo + '/actions/runs/' + runId, {
+                headers: {
+                  Authorization: 'Bearer ' + process.env.RUN_TOKEN,
+                  Accept: 'application/vnd.github+json',
+                  'X-GitHub-Api-Version': '2022-11-28',
+                  'User-Agent': 'ira-zte-release-cleanup'
+                }
+              });
+              if (response.status === 404) return 'missing';
+              if (!response.ok) throw new Error('HTTP ' + response.status);
+              const data = await response.json();
+              return data.status;
+            };
 
             // Path dibuat manual agar karakter "/" pada nama cabang tidak ikut ter-encode di URL.
             const refPath = (name) => '/repos/' + owner + '/' + repo + '/git/refs/heads/' + name;
@@ -402,34 +418,40 @@ jobs:
             }
             if (known && !names.includes(known)) names.push(known);
 
-            const failed = [];
+            // Cabang run ini dihapus lebih dulu agar kegagalan menyapu sisa lama tidak menghalanginya.
+            const isCurrent = (name) => name === known || name.endsWith(runSuffix);
+            names.sort((a, b) => Number(isCurrent(b)) - Number(isCurrent(a)));
+
+            const failedCurrent = [];
+            const failedStale = [];
             for (const name of names) {
-              // Cabang run ini sendiri: hapus pasti (workflow ini sudah selesai memakainya).
-              const isCurrent = name === known || name.endsWith(runSuffix);
-              if (!isCurrent) {
+              const current = isCurrent(name);
+              if (!current) {
                 const match = name.match(/-(\d+)$/);
                 if (!match) {
                   core.info('Skip (nama tidak dikenali): ' + name);
                   continue;
                 }
+                let status;
                 try {
-                  const run = await runKit.rest.actions.getWorkflowRun({ owner, repo, run_id: Number(match[1]) });
-                  if (run.data.status !== 'completed') {
-                    core.info('Skip (build lain masih berjalan): ' + name);
-                    continue;
-                  }
+                  status = await runStatus(Number(match[1]));
                 } catch (error) {
-                  if (error.status !== 404) {
-                    core.warning('Skip (status run tidak bisa dibaca): ' + name + ': ' + error.message);
-                    continue;
-                  }
-                  // Run sudah dihapus: cabangnya yatim, aman dihapus.
+                  core.warning('Skip (status run tidak bisa dibaca): ' + name + ': ' + error.message);
+                  continue;
+                }
+                // "missing": run sudah dihapus, cabangnya yatim dan aman dihapus.
+                if (status !== 'completed' && status !== 'missing') {
+                  core.info('Skip (build lain masih berjalan): ' + name);
+                  continue;
                 }
               }
-              if (!(await deleteBranch(name))) failed.push(name);
+              if (!(await deleteBranch(name))) (current ? failedCurrent : failedStale).push(name);
             }
-            if (failed.length) {
-              core.setFailed('Gagal menghapus cabang sementara: ' + failed.join(', ') + '. Periksa izin Contents: write pada GitHub App dan aturan perlindungan cabang.');
+            if (failedStale.length) {
+              core.warning('Sisa cabang lama belum terhapus (akan dicoba lagi pada build berikutnya): ' + failedStale.join(', '));
+            }
+            if (failedCurrent.length) {
+              core.setFailed('Gagal menghapus cabang sementara: ' + failedCurrent.join(', ') + '. Periksa izin Contents: write pada GitHub App dan aturan perlindungan cabang.');
             }
 
   report-failure:
