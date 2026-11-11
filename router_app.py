@@ -162,6 +162,10 @@ HTML_CONTENT = """
         @keyframes splashBar { 0%, 100% { transform: scaleY(0.35); } 50% { transform: scaleY(1); } }
         @keyframes splashFill { from { width: 0; } to { width: 100%; } }
         @keyframes splashGrid { from { background-position: 0 0; } to { background-position: 38px 38px; } }
+        /* Wadah grafik: lebar mengikuti kartu (tidak melebar keluar saat jendela dikecilkan). */
+        .chart-container { position: relative; flex: 1 1 0%; width: 0; min-width: 0; max-width: 100%; overflow: hidden; }
+        .chart-container.chart-full { flex: none; width: 100%; }
+        .chart-container canvas { display: block; width: 100% !important; max-width: 100% !important; }
     </style>
 </head>
 <body id="app-body" class="bg-slate-950 text-slate-100 h-screen overflow-hidden p-4 flex flex-col justify-between select-none relative">
@@ -237,8 +241,7 @@ HTML_CONTENT = """
                     <span class="text-[9px] text-slate-400 -mt-0.5">Daya Terima Sinyal</span>
                     <div id="val-rsrp" class="text-base font-bold text-slate-100 leading-tight">- dBm</div>
                 </div>
-                <div class="h-12 w-full relative flex-grow">
-                    <canvas id="chartRsrp"></canvas>
+                <div class="chart-container h-12">\1<canvas id="chartRsrp"></canvas>
                 </div>
             </div>
 
@@ -255,8 +258,7 @@ HTML_CONTENT = """
                     <span class="text-[9px] text-slate-400 -mt-0.5">Kekuatan Total & Derau</span>
                     <div id="val-rssi" class="text-base font-bold text-slate-100 leading-tight">- dBm</div>
                 </div>
-                <div class="h-12 w-full relative flex-grow">
-                    <canvas id="chartRssi"></canvas>
+                <div class="chart-container h-12">\1<canvas id="chartRssi"></canvas>
                 </div>
             </div>
 
@@ -273,8 +275,7 @@ HTML_CONTENT = """
                     <span class="text-[9px] text-slate-400 -mt-0.5">Kualitas Sinyal</span>
                     <div id="val-rsrq" class="text-base font-bold text-slate-100 leading-tight">- dB</div>
                 </div>
-                <div class="h-12 w-full relative flex-grow">
-                    <canvas id="chartRsrq"></canvas>
+                <div class="chart-container h-12">\1<canvas id="chartRsrq"></canvas>
                 </div>
             </div>
 
@@ -291,8 +292,7 @@ HTML_CONTENT = """
                     <span class="text-[9px] text-slate-400 -mt-0.5">Kebersihan Sinyal</span>
                     <div id="val-sinr" class="text-base font-bold text-slate-100 leading-tight">- dB</div>
                 </div>
-                <div class="h-12 w-full relative flex-grow">
-                    <canvas id="chartSinr"></canvas>
+                <div class="chart-container h-12">\1<canvas id="chartSinr"></canvas>
                 </div>
             </div>
 
@@ -311,8 +311,7 @@ HTML_CONTENT = """
                     <span id="ping-chart-title" class="text-[9px] text-slate-400 -mt-0.5">📈 Ping Latency</span>
                     <div id="val-ping" class="text-base font-bold text-slate-100 leading-tight">— ms</div>
                 </div>
-                <div class="h-12 w-full relative flex-grow">
-                    <canvas id="chartPing"></canvas>
+                <div class="chart-container h-12">\1<canvas id="chartPing"></canvas>
                 </div>
             </div>
 
@@ -814,7 +813,72 @@ HTML_CONTENT = """
         Chart.defaults.color = '#64748b';
         Chart.defaults.font.family = 'ui-sans-serif, system-ui, sans-serif';
 
-        const maxDataPoints = 30;
+        const CHART_ANIMATE = true;
+        // ===== Grafik: jumlah titik adaptif (30 / 15), sumbu ping mulai dari 0, pembaruan halus =====
+        // Layar sempit (HP, atau jendela desktop yang dikecilkan) memakai 15 titik agar titik tidak berdesakan
+        // dan tidak keluar dari bingkai grafik; layar lebar kembali ke 30 titik.
+        const MAX_POINTS_WIDE = 30;
+        const MAX_POINTS_NARROW = 15;
+        const NARROW_BELOW_PX = 1240;   // lebar di bawah ini -> 15 titik
+        const WIDE_FROM_PX = 1300;      // mulai lebar ini -> kembali 30 titik (celah 1240-1300 mencegah berkedip saat resize)
+
+        function computeMaxDataPoints(current) {
+            const width = window.innerWidth || (document.documentElement && document.documentElement.clientWidth) || 0;
+            if (width > 0 && width < NARROW_BELOW_PX) return MAX_POINTS_NARROW;
+            if (width === 0 || width >= WIDE_FROM_PX) return MAX_POINTS_WIDE;
+            return current === MAX_POINTS_WIDE ? MAX_POINTS_WIDE : MAX_POINTS_NARROW;   // zona celah: pertahankan
+        }
+
+        function chartRefreshMode() {
+            // Tanpa animasi bila dimatikan oleh platform atau jendela sedang tersembunyi/diminimalkan.
+            return (!CHART_ANIMATE || document.hidden) ? 'none' : undefined;
+        }
+
+        function refreshChart(chart) { chart.update(chartRefreshMode()); }
+
+        function trimChartPoints(chart) {
+            const labels = chart.data.labels;
+            const data = chart.data.datasets[0].data;
+            let trimmed = false;
+            while (labels.length > maxDataPoints) { labels.shift(); data.shift(); trimmed = true; }
+            return trimmed;
+        }
+
+        // Ping tidak mungkin negatif: batas bawah SELALU 0, dan label sumbu memakai kelipatan "bulat"
+        // (mis. 0, 5, 10, 15) agar teratur. Nilai null (timeout) diabaikan.
+        function applyPingYAxis(chart) {
+            const values = chart.data.datasets[0].data.map(Number).filter(value => Number.isFinite(value) && value >= 0);
+            const maxValue = values.length ? Math.max(...values) : 0;
+            const target = Math.max(maxValue * 1.15, 4);
+            const steps = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000];
+            const step = steps.find(candidate => target / candidate <= 4) || steps[steps.length - 1];
+            const y = chart.options.scales.y;
+            y.beginAtZero = true;
+            y.min = 0;
+            y.max = Math.max(step * 2, Math.ceil(target / step) * step);
+            y.ticks.stepSize = step;
+        }
+
+        function applyMaxDataPoints() {
+            const next = computeMaxDataPoints(maxDataPoints);
+            if (next === maxDataPoints) return;
+            maxDataPoints = next;
+            onMaxDataPointsChanged();
+        }
+
+        let chartResizeTimer = null;
+        window.addEventListener('resize', () => {
+            clearTimeout(chartResizeTimer);
+            chartResizeTimer = setTimeout(applyMaxDataPoints, 150);
+        });
+
+        let maxDataPoints = computeMaxDataPoints(MAX_POINTS_WIDE);
+
+        function onMaxDataPointsChanged() {
+            [chartRsrp, chartRssi, chartRsrq, chartSinr, chartPing].forEach(chart => {
+                if (trimChartPoints(chart)) refreshChart(chart);
+            });
+        }
         let connectionHistory = [];
         // Connection state is debounced so a single timeout does not cause alert/recovery flapping.
         let wasConnected = null;
@@ -1812,23 +1876,10 @@ HTML_CONTENT = """
             }
         }
 
-
         function saveUpdatePreferences() {
             safeStorage.setItem('update_channel', document.getElementById('setting-update-channel').value);
             safeStorage.setItem('auto_update_check', String(document.getElementById('setting-auto-update-check').checked));
         }
-
-
-
-
-
-
-
-
-
-
-
-
 
         function openExternalUrl(url) {
             if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.open_url === 'function') {
@@ -2301,6 +2352,7 @@ HTML_CONTENT = """
                         borderWidth: 2,
                         fill: true,
                         tension: 0.35,
+                        cubicInterpolationMode: 'monotone',   // kurva tidak melampaui nilai data
                         pointRadius: 2,
                         pointBackgroundColor: '#ffffff',
                         pointBorderColor: color,
@@ -2310,6 +2362,7 @@ HTML_CONTENT = """
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    layout: { padding: { left: 4, right: 10, top: 6, bottom: 4 } },
                     animation: { duration: 260, easing: 'easeOutQuart' },
                     plugins: { legend: { display: false } },
                     scales: {
@@ -2380,14 +2433,14 @@ HTML_CONTENT = """
                         textEl.innerText = value < 80 ? 'Bagus' : value < 150 ? 'Sedang' : 'Tinggi';
                         textEl.className = 'font-semibold ' + (value < 80 ? 'text-emerald-400' : value < 150 ? 'text-amber-400' : 'text-orange-400');
                         dotEl.className = 'h-1.5 w-1.5 rounded-full ' + (value < 80 ? 'bg-emerald-400' : value < 150 ? 'bg-amber-400' : 'bg-orange-400');
-                        if (chartPing.data.labels.length >= maxDataPoints) {
+                        while (chartPing.data.labels.length >= maxDataPoints) {
                             chartPing.data.labels.shift();
                             chartPing.data.datasets[0].data.shift();
                         }
                         chartPing.data.labels.push(new Date().toLocaleTimeString('id-ID'));
                         chartPing.data.datasets[0].data.push(value);
-                        applyDynamicYAxis(chartPing);
-                        chartPing.update();
+                        applyPingYAxis(chartPing);
+                        refreshChart(chartPing);
                     } else {
                         valueEl.innerText = '— ms';
                         textEl.innerText = 'Tidak tersedia';
@@ -2641,15 +2694,14 @@ HTML_CONTENT = """
 
             // Smooth chart animation update
             function updateChartData(chart, val) {
-                if (chart.data.labels.length >= maxDataPoints) {
+                while (chart.data.labels.length >= maxDataPoints) {
                     chart.data.labels.shift();
                     chart.data.datasets[0].data.shift();
                 }
                 chart.data.labels.push(nowTime);
                 chart.data.datasets[0].data.push(val);
                 applyDynamicYAxis(chart);
-                // Keep a short smooth transition; the fixed-size history prevents runaway points.
-                chart.update();
+                refreshChart(chart);
             }
 
             updateChartData(chartRsrp, rsrp);
@@ -2807,6 +2859,14 @@ class Api:
             "speed_bps": 0, "eta_seconds": None, "status": "Siap", "error": None,
         }
         self._update_progress_lock = threading.Lock()
+        # Cek internet di-cache & diperbarui di thread latar (lihat _internet_state).
+        self._internet_lock = threading.Lock()
+        self._internet_session = requests.Session()
+        self._internet_ok = False
+        self._internet_fail_streak = 0
+        self._internet_checked_at = 0.0
+        self._internet_checking = False
+        self._internet_probed = False
 
     def get_update_progress(self):
         with self._update_progress_lock:
@@ -2871,6 +2931,69 @@ class Api:
             return {"success": False, "error": f"Tidak bisa menulis file: {type(e).__name__}: {e}"}
         return {"success": True, "path": str(chosen), "fallback": used_fallback}
 
+    # --- Cek internet di latar belakang -------------------------------------------------------------
+    # Probe HTTPS ke internet butuh 0,5-7 detik (apalagi saat gagal). Bila dilakukan di SETIAP polling,
+    # periode update dashboard menjadi tidak beraturan sehingga grafik terasa tersendat. Hasilnya kini
+    # di-cache dan diperbarui di thread latar; polling telemetri langsung kembali.
+    _INTERNET_PROBES = (
+        "https://www.cloudflare.com/cdn-cgi/trace",
+        "https://www.google.com/generate_204",
+    )
+    _INTERNET_TTL = 2.0            # detik sebelum hasil dianggap basi dan diperiksa ulang
+    _INTERNET_FAILS_TO_DOWN = 2    # gagal berturut-turut sebelum internet dinyatakan putus (anti alarm palsu)
+
+    def _probe_internet(self):
+        ok = False
+        try:
+            # Dua endpoint HTTPS independen: gangguan sementara pada satu penyedia tidak dianggap internet putus.
+            for probe_url in self._INTERNET_PROBES:
+                try:
+                    response = self._internet_session.get(
+                        probe_url, headers={"Cache-Control": "no-cache"}, timeout=(1.5, 2.0),
+                    )
+                    response.raise_for_status()
+                    ok = True
+                    break
+                except requests.exceptions.RequestException:
+                    continue
+        finally:
+            with self._internet_lock:
+                if ok:
+                    self._internet_fail_streak = 0
+                    self._internet_ok = True
+                else:
+                    self._internet_fail_streak += 1
+                    if self._internet_fail_streak >= self._INTERNET_FAILS_TO_DOWN or not self._internet_probed:
+                        self._internet_ok = False
+                self._internet_probed = True
+                self._internet_checked_at = time.monotonic()
+                self._internet_checking = False
+
+    def _internet_state(self):
+        """Status internet terakhir (cache). Pemeriksaan pertama sinkron; setelahnya di thread latar."""
+        with self._internet_lock:
+            stale = time.monotonic() - self._internet_checked_at >= self._INTERNET_TTL
+            start = stale and not self._internet_checking
+            first = not self._internet_probed
+            if start:
+                self._internet_checking = True
+            current = self._internet_ok
+        if start:
+            if first:
+                self._probe_internet()
+                with self._internet_lock:
+                    current = self._internet_ok
+            else:
+                threading.Thread(target=self._probe_internet, daemon=True).start()
+        return current
+
+    def _reset_internet_cache(self):
+        """Tower putus: anggap internet putus & periksa ulang segera begitu sinyal kembali."""
+        with self._internet_lock:
+            self._internet_ok = False
+            self._internet_fail_streak = 0
+            self._internet_checked_at = 0.0
+
     def get_router_data(self):
         data = {}
         internet_ok = False
@@ -2916,27 +3039,10 @@ class Api:
             signal_bar = 0
 
         if signal_bar > 0:
-            # Check two independent HTTPS endpoints. A temporary failure or block on one
-            # provider should not falsely mark the whole internet connection as down.
-            internet_ok = False
-            probes = (
-                "https://www.cloudflare.com/cdn-cgi/trace",
-                "https://www.google.com/generate_204",
-            )
-            for probe_url in probes:
-                try:
-                    response = requests.get(
-                        probe_url,
-                        headers={"Cache-Control": "no-cache"},
-                        timeout=(1.5, 2.0),
-                    )
-                    response.raise_for_status()
-                    internet_ok = True
-                    break
-                except requests.exceptions.RequestException:
-                    continue
+            internet_ok = self._internet_state()
         else:
             internet_ok = False
+            self._reset_internet_cache()
 
         data["internet_ok"] = internet_ok
         return data
@@ -3017,9 +3123,22 @@ class Api:
 
     @staticmethod
     def _release_version_key(tag):
+        """Kunci urutan versi: (mayor, minor, patch, peringkat, nomor prarilis).
+
+        Rilis stabil berada di atas semua prarilis dengan basis yang sama:
+        1.1-dev.8 < 1.1-dev.10 < 1.1-rc.1 < 1.1 < 1.1.1 < 1.2-dev.1
+        """
         import re
-        numbers = re.findall(r"\d+", str(tag or ""))
-        return tuple(int(n) for n in numbers) if numbers else (0,)
+        text = str(tag or "").strip()
+        text = text[1:] if text[:1] in ("v", "V") else text
+        pre = re.search(r"[-.]?(dev|alpha|beta|rc|pre)[.-]?(\d+)?", text, re.IGNORECASE)
+        base = text[:pre.start()] if pre else text
+        numbers = [int(n) for n in re.findall(r"\d+", base)]
+        numbers = (numbers + [0, 0, 0])[:3]
+        ranks = {"dev": 0, "alpha": 1, "beta": 2, "pre": 2, "rc": 3}
+        rank = ranks.get(pre.group(1).lower(), 0) if pre else 4
+        pre_number = int(pre.group(2)) if pre and pre.group(2) else 0
+        return (numbers[0], numbers[1], numbers[2], rank, pre_number)
 
     def _get_release(self, channel):
         channel = "beta" if channel == "beta" else "stable"
@@ -3032,15 +3151,23 @@ class Api:
         releases = response.json()
         if not isinstance(releases, list):
             raise RuntimeError("Respons GitHub Releases tidak valid.")
+        # Kanal Stable: hanya rilis resmi. Kanal Beta: prarilis DAN rilis resmi (versi tertinggi menang).
         candidates = [
             release for release in releases
             if isinstance(release, dict) and not release.get("draft", False)
-            and (bool(release.get("prerelease")) if channel == "beta" else not bool(release.get("prerelease")))
+            and (channel == "beta" or not bool(release.get("prerelease")))
         ]
         if not candidates:
             return None
-        # GitHub returns releases newest-first; sort defensively by published date.
-        candidates.sort(key=lambda r: str(r.get("published_at") or r.get("created_at") or ""), reverse=True)
+        # Urutkan menurut NOMOR VERSI, bukan tanggal: GitHub mengurutkan menurut tanggal sehingga dev.10 bisa
+        # tampil di bawah dev.9. Tanggal hanya dipakai sebagai pemutus seri bila versinya sama persis.
+        candidates.sort(
+            key=lambda r: (
+                self._release_version_key(r.get("tag_name") or r.get("name")),
+                str(r.get("published_at") or r.get("created_at") or ""),
+            ),
+            reverse=True,
+        )
         return candidates[0]
 
     @staticmethod
@@ -3292,7 +3419,8 @@ class Api:
             asset = self._release_asset_for_kind(release.get("assets") or [], app_kind)
             current_key = self._release_version_key(APP_VERSION)
             remote_key = self._release_version_key(tag)
-            is_newer = remote_key > current_key or (remote_key == current_key and tag.lower() != APP_VERSION.lower())
+            same_label = tag.strip().lstrip("vV").lower() == APP_VERSION.strip().lstrip("vV").lower()
+            is_newer = remote_key > current_key or (remote_key == current_key and not same_label)
             can_install = bool(is_newer and asset and asset.get("browser_download_url"))
             kind_label = {"exe": "EXE", "python": "Python", "apk": "APK"}[app_kind]
             return {
@@ -3332,11 +3460,6 @@ class Api:
             if not asset or not asset.get("browser_download_url"):
                 kind_label = "EXE" if app_kind == "exe" else "Python"
                 return {"success": False, "error": f"Release ini tidak memiliki aset {kind_label} yang cocok; aplikasi tidak diubah."}
-
-            if app_kind == "exe":
-                writable, reason = self._exe_dir_writable()
-                if not writable:
-                    return {"success": False, "error": reason}
 
             self._set_update_progress(active=True, percent=0, downloaded=0, total=0,
                                       speed_bps=0, eta_seconds=None, status="Menghubungkan ke server…", error=None)
@@ -3380,59 +3503,106 @@ class Api:
             current_exe = Path(sys.executable).resolve()
             if not getattr(sys, "frozen", False):
                 return {"success": False, "error": "Updater EXE hanya dapat dijalankan dari aplikasi EXE."}
-            temp_exe = current_exe.with_name(current_exe.stem + ".update.exe")
+            # Berkas sementara dan skrip pemasang ditaruh di folder TEMP pengguna (selalu bisa ditulis), bukan di
+            # folder instalasi. Bila folder instalasi tidak bisa ditulis oleh pengguna biasa (mis. dipasang ke
+            # Program Files, atau ke drive lain dengan hak administrator), skrip dijalankan dengan izin
+            # administrator (UAC) sehingga update tetap bisa dipasang.
+            stage_dir = Path(tempfile.gettempdir()) / "IRA_ZTE_Update"
+            stage_dir.mkdir(parents=True, exist_ok=True)
+            temp_exe = stage_dir / (current_exe.stem + ".update.exe")
             temp_exe.write_bytes(payload)
-            import subprocess
-            batch_path = current_exe.with_name(current_exe.stem + "_update.bat")
-            # Real CRLF line breaks are required. The previous version wrote the literal
-            # text "\r\n", so cmd.exe saw one broken line, never replaced the EXE and
-            # never relaunched the app after it exited.
-            batch_lines = [
-                "@echo off",
-                "set TRIES=0",
-                ":retry",
-                "ping 127.0.0.1 -n 3 >nul",
-                f'move /y "{temp_exe}" "{current_exe}" >nul 2>&1',
-                "if not errorlevel 1 goto done",
-                "set /a TRIES+=1",
-                "if %TRIES% lss 20 goto retry",
-                "exit /b 1",
-                ":done",
-                "set PYINSTALLER_RESET_ENVIRONMENT=1",
-                "set _MEIPASS2=",
-                f'start "" "{current_exe}"',
-                'del "%~f0"',
-            ]
-            batch_path.write_text("\r\n".join(batch_lines) + "\r\n", encoding="utf-8")
-            # Do not leak PyInstaller's onefile temp-dir variables into the relaunched app.
-            child_env = {k: v for k, v in os.environ.items() if not k.startswith(("_MEI", "_PYI"))}
-            child_env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
-            subprocess.Popen(
-                ["cmd.exe", "/c", str(batch_path)],
-                cwd=str(current_exe.parent),
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                close_fds=True,
-                env=child_env,
-            )
+            elevated = not self._can_replace_exe(current_exe)
+            if elevated:
+                self._set_update_progress(status="Meminta izin administrator untuk memasang update…")
+            batch_path = self._write_update_batch(stage_dir, temp_exe, current_exe, elevated)
+            try:
+                self._start_update_batch(batch_path, stage_dir, elevated)
+            except RuntimeError as e:
+                # Izin ditolak / skrip gagal dijalankan: aplikasi TIDAK ditutup dan tidak diubah.
+                for leftover in (temp_exe, batch_path):
+                    try:
+                        leftover.unlink()
+                    except OSError:
+                        pass
+                self._set_update_progress(active=False, status="Pembaruan dibatalkan.", error=str(e))
+                return {"success": False, "error": str(e)}
             os._exit(0)
         except Exception as e:
             self._set_update_progress(active=False, status="Pembaruan gagal.", error=f"{type(e).__name__}: {e}")
             return {"success": False, "error": f"Pembaruan gagal: {type(e).__name__}: {e}"}
 
     @staticmethod
-    def _exe_dir_writable():
-        """Check that the EXE can be replaced in place (fails in Program Files without admin)."""
-        exe_dir = Path(sys.executable).parent
+    def _dir_is_writable(directory):
+        """True bila pengguna saat ini bisa membuat (dan menghapus) berkas di folder ini."""
         try:
-            probe = exe_dir / ".ira_write_test.tmp"
+            probe = Path(directory) / f".ira_write_test_{os.getpid()}.tmp"
             probe.write_bytes(b"ok")
             probe.unlink()
-            return True, ""
-        except OSError as e:
-            return False, (
-                f"Folder instalasi ({exe_dir}) tidak bisa ditulis tanpa hak admin ({type(e).__name__}). "
-                "Pasang ulang aplikasi dengan installer terbaru (per-pengguna) atau pindahkan EXE portable ke folder biasa."
-            )
+            return True
+        except OSError:
+            return False
+
+    def _can_replace_exe(self, exe_path):
+        """False bila mengganti EXE ini butuh hak administrator (folder/berkas tidak bisa ditulis)."""
+        exe_path = Path(exe_path)
+        return self._dir_is_writable(exe_path.parent) and os.access(str(exe_path), os.W_OK)
+
+    @staticmethod
+    def _write_update_batch(stage_dir, temp_exe, current_exe, elevated):
+        """Tulis skrip .bat yang menunggu aplikasi tertutup, mengganti EXE, lalu membukanya lagi.
+
+        Harus memakai baris baru CRLF asli (bukan teks literal backslash-r-backslash-n). Bila penggantian gagal setelah
+        beberapa kali mencoba, EXE lama dibuka kembali agar pengguna tidak kehilangan aplikasinya.
+        Pada mode administrator, aplikasi dibuka lewat explorer.exe supaya berjalan sebagai pengguna biasa
+        (bukan ikut ber-hak admin).
+        """
+        relaunch = f'explorer.exe "{current_exe}"' if elevated else f'start "" "{current_exe}"'
+        batch_path = Path(stage_dir) / (Path(current_exe).stem + "_update.bat")
+        lines = [
+            "@echo off",
+            "set TRIES=0",
+            ":retry",
+            "ping 127.0.0.1 -n 3 >nul",
+            f'move /y "{temp_exe}" "{current_exe}" >nul 2>&1',
+            "if not errorlevel 1 goto launch",
+            "set /a TRIES+=1",
+            "if %TRIES% lss 20 goto retry",
+            f'del "{temp_exe}" >nul 2>&1',
+            ":launch",
+            "set PYINSTALLER_RESET_ENVIRONMENT=1",
+            "set _MEIPASS2=",
+            relaunch,
+            'del "%~f0"',
+        ]
+        batch_path.write_text("\r\n".join(lines) + "\r\n", encoding="utf-8")
+        return batch_path
+
+    @staticmethod
+    def _start_update_batch(batch_path, stage_dir, elevated):
+        """Jalankan skrip pemasang. Melempar RuntimeError bila izin administrator ditolak."""
+        import subprocess
+        if elevated:
+            import ctypes
+            shell = ctypes.windll.shell32
+            shell.ShellExecuteW.restype = ctypes.c_void_p
+            result = shell.ShellExecuteW(None, "runas", "cmd.exe", f'/c ""{batch_path}""', str(stage_dir), 0)
+            code = int(result or 0)
+            if code <= 32:
+                raise RuntimeError(
+                    f"Izin administrator ditolak atau tidak tersedia (kode {code}). "
+                    "Update dibatalkan dan aplikasi tidak diubah."
+                )
+            return
+        # Jangan bocorkan variabel folder sementara PyInstaller ke aplikasi yang dibuka ulang.
+        child_env = {k: v for k, v in os.environ.items() if not k.startswith(("_MEI", "_PYI"))}
+        child_env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+        subprocess.Popen(
+            ["cmd.exe", "/c", str(batch_path)],
+            cwd=str(stage_dir),
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            close_fds=True,
+            env=child_env,
+        )
 
     @staticmethod
     def _restart_after_update(script_path):
