@@ -31,6 +31,7 @@ import java.nio.channels.FileChannel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
@@ -197,11 +198,7 @@ class MainActivity : Activity() {
 
     private fun latestApk(channel: String): ApkRelease {
         val normalizedChannel = if (channel.equals("beta", true)) "beta" else "stable"
-        val endpoint = if (normalizedChannel == "stable") {
-            "https://api.github.com/repos/$repository/releases/latest"
-        } else {
-            "https://api.github.com/repos/$repository/releases?per_page=30"
-        }
+        val endpoint = "https://api.github.com/repos/$repository/releases?per_page=30"
         val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
             connectTimeout = 10000
             readTimeout = 15000
@@ -211,14 +208,14 @@ class MainActivity : Activity() {
         try {
             if (conn.responseCode !in 200..299) error("GitHub API HTTP ${conn.responseCode}")
             val body = conn.inputStream.bufferedReader().use { it.readText() }
-            val releases = if (normalizedChannel == "stable") listOf(JSONObject(body)) else {
-                val array = JSONArray(body)
-                (0 until array.length()).mapNotNull { array.optJSONObject(it) }
-                    .filterNot { it.optBoolean("draft") }
-            }
+            val array = JSONArray(body)
+            // Stable: hanya rilis resmi. Beta: prarilis dan rilis resmi (versi tertinggi menang).
+            // Diurutkan menurut NOMOR VERSI, bukan urutan tanggal dari GitHub (dev.10 harus di atas dev.9).
+            val releases = (0 until array.length()).mapNotNull { array.optJSONObject(it) }
+                .filterNot { it.optBoolean("draft") }
+                .filter { normalizedChannel == "beta" || !it.optBoolean("prerelease") }
+                .sortedWith(Comparator { a, b -> compareVersions(b.optString("tag_name"), a.optString("tag_name")) })
             for (release in releases) {
-                if (release.optBoolean("draft")) continue
-                if (normalizedChannel == "stable" && release.optBoolean("prerelease")) continue
                 val assets = release.optJSONArray("assets") ?: JSONArray()
                 for (i in 0 until assets.length()) {
                     val asset = assets.optJSONObject(i) ?: continue
@@ -240,17 +237,35 @@ class MainActivity : Activity() {
             error("Tidak ditemukan aset .apk valid untuk kanal ${normalizedChannel.uppercase()}.")
         } finally { conn.disconnect() }
     }
-    private fun nums(v: String): List<Int> = Regex("\\d+").findAll(v).mapNotNull { it.value.toIntOrNull() }.toList()
 
-    private fun newer(latest: String, current: String): Boolean {
-        val a = nums(latest); val b = nums(current)
-        if (a.isEmpty()) return latest.removePrefix("v") != current.removePrefix("v")
-        for (i in 0 until maxOf(a.size, b.size)) {
-            val x = a.getOrElse(i) { 0 }; val y = b.getOrElse(i) { 0 }
-            if (x != y) return x > y
+    // Kunci urutan versi: (mayor, minor, patch, peringkat, nomor prarilis). Rilis stabil berada di atas semua
+    // prarilis dengan basis yang sama: 1.1-dev.8 < 1.1-dev.10 < 1.1-rc.1 < 1.1 < 1.1.1 < 1.2-dev.1
+    private fun versionKey(tag: String): List<Int> {
+        val text = tag.trim().removePrefix("v").removePrefix("V")
+        val pre = Regex("[-.]?(dev|alpha|beta|rc|pre)[.-]?(\\d+)?", RegexOption.IGNORE_CASE).find(text)
+        val base = if (pre != null) text.substring(0, pre.range.first) else text
+        val numbers = Regex("\\d+").findAll(base).mapNotNull { it.value.toIntOrNull() }.toList()
+        val rank = when (pre?.groupValues?.get(1)?.lowercase()) {
+            null -> 4
+            "alpha" -> 1
+            "beta", "pre" -> 2
+            "rc" -> 3
+            else -> 0
         }
-        return false
+        val preNumber = pre?.groupValues?.get(2)?.toIntOrNull() ?: 0
+        return listOf(numbers.getOrElse(0) { 0 }, numbers.getOrElse(1) { 0 }, numbers.getOrElse(2) { 0 }, rank, preNumber)
     }
+
+    private fun compareVersions(a: String, b: String): Int {
+        val x = versionKey(a)
+        val y = versionKey(b)
+        for (i in x.indices) {
+            if (x[i] != y[i]) return x[i].compareTo(y[i])
+        }
+        return 0
+    }
+
+    private fun newer(latest: String, current: String): Boolean = compareVersions(latest, current) > 0
 
     private fun installedVersion(): String = packageManager.getPackageInfo(packageName, 0).versionName ?: "0"
 
@@ -547,6 +562,16 @@ class MainActivity : Activity() {
         @JavascriptInterface
         fun getAppVersion(): String = installedVersion()
 
+        // Ping di thread latar; hasil dikirim ke window.onPingResult(id, nilai) tanpa memblokir UI.
+        @JavascriptInterface
+        fun pingHostAsync(id: Int, host: String?) {
+            Thread {
+                val value = pingHost(host)
+                val script = "window.onPingResult && window.onPingResult($id, $value);"
+                runOnUiThread { webView.evaluateJavascript(script, null) }
+            }.start()
+        }
+
         @JavascriptInterface
         fun pingHost(host: String?): Int {
             val target = host?.trim().orEmpty()
@@ -562,8 +587,39 @@ class MainActivity : Activity() {
             } catch (_: Exception) { -1 }
         }
 
-        @JavascriptInterface
-        fun getRouterData(): String {
+        // Cek internet di-cache dan diperbarui di thread latar agar pengambilan data router tidak ikut menunggu
+        // (sebelumnya tiap polling menahan thread JavaScript hingga beberapa detik: grafik tersendat).
+        @Volatile private var internetOk = false
+        @Volatile private var internetFailStreak = 0
+        @Volatile private var internetCheckedAt = 0L
+        @Volatile private var internetProbed = false
+        private val internetChecking = AtomicBoolean(false)
+        private val routerFetchBusy = AtomicBoolean(false)
+
+        private fun probeInternet() {
+            val ok = checkInternet()
+            if (ok) {
+                internetFailStreak = 0
+                internetOk = true
+            } else {
+                // Dua kegagalan berturut-turut baru dinyatakan putus (anti alarm palsu).
+                internetFailStreak++
+                if (internetFailStreak >= 2 || !internetProbed) internetOk = false
+            }
+            internetProbed = true
+            internetCheckedAt = System.currentTimeMillis()
+            internetChecking.set(false)
+        }
+
+        private fun internetState(): Boolean {
+            val stale = System.currentTimeMillis() - internetCheckedAt >= 2000L
+            if (stale && internetChecking.compareAndSet(false, true)) {
+                if (!internetProbed) probeInternet() else Thread { probeInternet() }.start()
+            }
+            return internetOk
+        }
+
+        private fun buildRouterData(): String {
             val data = JSONObject()
             try {
                 val url = URL("http://192.168.0.1/ubus/?t=${System.currentTimeMillis()}")
@@ -586,8 +642,24 @@ class MainActivity : Activity() {
                 }
                 connection.disconnect()
             } catch (_: Exception) { }
-            data.put("internet_ok", checkInternet())
+            data.put("internet_ok", internetState())
             return data.toString()
+        }
+
+        // Versi sinkron dipertahankan untuk kompatibilitas; halaman memakai requestRouterData().
+        @JavascriptInterface
+        fun getRouterData(): String = buildRouterData()
+
+        // Mengambil data di thread latar lalu mengirim hasilnya ke window.onRouterData (tanpa memblokir UI).
+        @JavascriptInterface
+        fun requestRouterData() {
+            if (!routerFetchBusy.compareAndSet(false, true)) return
+            Thread {
+                val json = try { buildRouterData() } catch (_: Exception) { "{}" }
+                routerFetchBusy.set(false)
+                val script = "window.onRouterData && window.onRouterData($json);"
+                runOnUiThread { webView.evaluateJavascript(script, null) }
+            }.start()
         }
 
         private fun checkInternet(): Boolean = try {
