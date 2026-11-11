@@ -1,6 +1,6 @@
 # IRA ZTE MC8501 5G Live Signal Charts
 
-Aplikasi desktop dan Android untuk memantau telemetri jaringan **ZTE MC8501 5G** secara langsung. Dashboard menampilkan metrik radio, status router dan internet, grafik ping, riwayat koneksi, serta berbagai alat diagnostik dan pembaruan aplikasi.
+Aplikasi Desktop dan Android untuk memantau telemetri jaringan **ZTE MC8501 5G** secara langsung. Dashboard menampilkan metrik radio, status router dan internet, grafik ping, riwayat koneksi, serta berbagai alat diagnostik dan pembaruan aplikasi.
 
 <p align="center">
   <a href="#instalasi"><img src="https://img.shields.io/badge/Unduh-1976D2?style=for-the-badge&logo=github&logoColor=white" alt="Unduh"></a>
