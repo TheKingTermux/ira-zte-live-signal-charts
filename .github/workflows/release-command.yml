@@ -15,12 +15,19 @@ jobs:
       github.event.comment.user.type != 'Bot' &&
       !endsWith(github.event.comment.user.login, '[bot]')
     runs-on: ubuntu-latest
-    permissions:
-      issues: write
+    # Semua API dan komentar memakai token bot pribadi (GitHub App); GITHUB_TOKEN tidak diberi izin apa pun.
+    permissions: {}
     steps:
+      - name: Generate Bot Token
+        id: get_bug_bot_token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
       - name: Announce build start
         uses: actions/github-script@v7
         with:
+          github-token: ${{ steps.get_bug_bot_token.outputs.token }}
           script: |
             const { owner, repo } = context.repo;
             const command = context.payload.comment.body.trim();
@@ -33,9 +40,7 @@ jobs:
   prepare:
     if: github.event.comment.user.login == github.repository_owner
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      issues: write
+    permissions: {}
     outputs:
       mode: ${{ steps.version.outputs.mode }}
       tag: ${{ steps.version.outputs.tag }}
@@ -275,8 +280,7 @@ jobs:
     if: needs.prepare.outputs.tag != ''
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      issues: write
+      contents: read
     steps:
       - name: Generate Bot Token
         id: get_bug_bot_token
@@ -319,6 +323,7 @@ jobs:
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
           RELEASE_TITLE: ${{ needs.prepare.outputs.title }}
         with:
+          github-token: ${{ steps.get_bug_bot_token.outputs.token }}
           script: |
             const { owner, repo } = context.repo;
             const tag = process.env.RELEASE_TAG;
@@ -351,10 +356,21 @@ jobs:
           client-id: ${{ secrets.BOT_APP_ID }}
           private-key: ${{ secrets.BOT_PRIVATE_KEY }}
           permission-contents: write
+      - name: Generate Bot Token (baca status workflow run)
+        id: get_actions_token
+        # Opsional: bila GitHub App belum diberi izin Actions: read, langkah ini gagal tanpa menggagalkan job,
+        # dan status run dibaca dengan GITHUB_TOKEN (hanya membaca; tidak membuat atau mengirim apa pun).
+        continue-on-error: true
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
+          permission-actions: read
       - name: Delete temporary build branches
         uses: actions/github-script@v7
         env:
           BUILD_BRANCH: ${{ needs.prepare.outputs.source_ref }}
+          BOT_READ_TOKEN: ${{ steps.get_actions_token.outputs.token }}
           RUN_TOKEN: ${{ github.token }}
         with:
           github-token: ${{ steps.get_bug_bot_token.outputs.token }}
@@ -366,17 +382,24 @@ jobs:
             const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
             // Catatan: github-script v7 hanya menyediakan github, context, core, exec, glob, io, dan require.
-            // getOctokit TIDAK tersedia, jadi status workflow run dibaca langsung dengan fetch (Node 20)
-            // memakai GITHUB_TOKEN yang punya izin actions: read.
+            // getOctokit TIDAK tersedia, jadi status workflow run dibaca langsung dengan fetch (Node 20).
+            // Urutan token: bot pribadi (GitHub App, izin Actions: read) lebih dulu; GITHUB_TOKEN hanya cadangan
+            // BACA-SAJA bila token bot tidak ada/ditolak.
+            const requestRun = (token, runId) => fetch('https://api.github.com/repos/' + owner + '/' + repo + '/actions/runs/' + runId, {
+              headers: {
+                Authorization: 'Bearer ' + token,
+                Accept: 'application/vnd.github+json',
+                'X-GitHub-Api-Version': '2022-11-28',
+                'User-Agent': 'ira-zte-release-cleanup'
+              }
+            });
             const runStatus = async (runId) => {
-              const response = await fetch('https://api.github.com/repos/' + owner + '/' + repo + '/actions/runs/' + runId, {
-                headers: {
-                  Authorization: 'Bearer ' + process.env.RUN_TOKEN,
-                  Accept: 'application/vnd.github+json',
-                  'X-GitHub-Api-Version': '2022-11-28',
-                  'User-Agent': 'ira-zte-release-cleanup'
-                }
-              });
+              let response = null;
+              if (process.env.BOT_READ_TOKEN) response = await requestRun(process.env.BOT_READ_TOKEN, runId);
+              if ((!response || response.status === 401 || response.status === 403) && process.env.RUN_TOKEN) {
+                response = await requestRun(process.env.RUN_TOKEN, runId);
+              }
+              if (!response) throw new Error('tidak ada token untuk membaca status run');
               if (response.status === 404) return 'missing';
               if (!response.ok) throw new Error('HTTP ' + response.status);
               const data = await response.json();
@@ -462,12 +485,18 @@ jobs:
       (needs.prepare.result == 'failure' || needs.build-exe.result == 'failure' || needs.build-apk.result == 'failure' || needs.publish.result == 'failure')
     needs: [prepare, build-exe, build-apk, publish]
     runs-on: ubuntu-latest
-    permissions:
-      issues: write
+    permissions: {}
     steps:
+      - name: Generate Bot Token
+        id: get_bug_bot_token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
       - name: Reply that build failed
         uses: actions/github-script@v7
         with:
+          github-token: ${{ steps.get_bug_bot_token.outputs.token }}
           script: |
             const { owner, repo } = context.repo;
             await github.rest.issues.createComment({
@@ -482,13 +511,18 @@ jobs:
       github.event.comment.user.type != 'Bot' &&
       !endsWith(github.event.comment.user.login, '[bot]')
     runs-on: ubuntu-latest
-    permissions:
-      issues: write
-      pull-requests: read
+    permissions: {}
     steps:
+      - name: Generate Bot Token
+        id: get_bug_bot_token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
       - name: Reply with release commands
         uses: actions/github-script@v7
         with:
+          github-token: ${{ steps.get_bug_bot_token.outputs.token }}
           script: |
             const { owner, repo } = context.repo;
             const issueNumber = context.issue.number;
@@ -500,7 +534,7 @@ jobs:
               '- `/build stable` — membuat rilis stabil dari branch `main`.',
               '',
               '**Catatan:** perintah build hanya dapat dijalankan oleh pemilik repositori. Kirim perintah sebagai komentar tersendiri.'
-            ].join('\\n');
+            ].join('\n');
             await github.rest.issues.createComment({
               owner, repo, issue_number: issueNumber, body
             });
