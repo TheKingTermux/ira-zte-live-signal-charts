@@ -160,7 +160,7 @@ Aplikasi Android menggunakan implementasi native Kotlin untuk fungsi yang membut
   <img width="1087" alt="Tampilan aplikasi desktop" src="https://github.com/user-attachments/assets/0deb9917-8085-4e3d-b238-97e29c362188" />
 </p>
 <p align="center">
-  <img width="1084" alt="Dashboard aplikasi" src="https://github.com/user-attachments/assets/de1c79b4-055d-42e5-ab8d-5003385a4fb9" />
+  <img width="1085" alt="Dashboard aplikasi" src="https://github.com/user-attachments/assets/c554cbf5-0c68-4ef0-8d7f-271109562033" />
 </p>
 <p align="center">
   <img width="1088" alt="Tampilan grafik dan informasi jaringan" src="https://github.com/user-attachments/assets/d0acdf62-9df2-438d-b799-e8817a2ddd19" />
