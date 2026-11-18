@@ -348,19 +348,11 @@ Workflow Windows menghasilkan dua jenis paket:
 
 APK dibangun melalui Android Gradle. Rilis APK menggunakan signing key yang konsisten agar pembaruan dapat dipasang di atas versi sebelumnya. Keystore dan password signing merupakan rahasia repository dan tidak boleh dimasukkan ke source code.
 
-### Perintah rilis repository
-
-Pemilik repository dapat memicu workflow rilis melalui komentar tersendiri pada Issue atau Pull Request:
-
-- `/cmd` — menampilkan daftar perintah yang tersedia.
-- `/build beta` — membangun rilis beta dari branch `dev`.
-- `/build stable` — membangun rilis stabil dari branch `main`.
-
 Workflow akan membuat versi rilis, menjalankan build desktop dan Android, lalu menerbitkan GitHub Release. Branch sementara build dibersihkan setelah proses publikasi berhasil. Perintah ini merupakan fitur otomasi maintainer, bukan fitur yang dijalankan dari dalam aplikasi.
 
 ## Status Proyek
 
-Proyek ini terutama ditujukan untuk pemantauan pribadi router IRA (Internet Rakyat) ZTE MC8501. Perubahan firmware dapat memengaruhi endpoint internal maupun kolom telemetri yang dikembalikan perangkat. Tidak semua fitur memiliki perilaku identik di desktop dan Android karena sebagian fungsi menggunakan integrasi native masing-masing platform.
+Proyek ini terutama ditujukan untuk pemantauan pribadi router IRA (Internet Rakyat) merek ZTE dengan model MC8501. Perubahan firmware dapat memengaruhi endpoint internal maupun kolom telemetri yang dikembalikan perangkat. Tidak semua fitur memiliki perilaku identik di desktop dan Android karena sebagian fungsi menggunakan integrasi native masing-masing platform.
 
 Proyek ini dikelola secara independen dan bukan perangkat lunak resmi dari produsen router atau penyedia layanan internet.
 
