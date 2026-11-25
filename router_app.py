@@ -2060,18 +2060,6 @@ HTML_CONTENT = """
             safeStorage.setItem('auto_update_check', String(document.getElementById('setting-auto-update-check').checked));
         }
 
-
-
-
-
-
-
-
-
-
-
-
-
         function openExternalUrl(url) {
             if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.open_url === 'function') {
                 window.pywebview.api.open_url(url);
