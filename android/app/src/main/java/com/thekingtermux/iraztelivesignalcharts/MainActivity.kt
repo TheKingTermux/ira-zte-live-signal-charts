@@ -448,6 +448,41 @@ class MainActivity : Activity() {
             }
     }
 
+    // ---- Alamat router: cukup IPv4 (jalur /ubus tetap) ----------------------------------------------
+    private val defaultRouterIp = "192.168.0.1"
+
+    private fun parseRouterIp(value: String?): List<Int>? {
+        var text = (value ?: "").trim()
+        text = text.replace(Regex("^[A-Za-z][A-Za-z0-9+.-]*://"), "")   // buang http:// atau https://
+        text = text.substringBefore('/').trim()                          // buang path: /ubus sudah tetap
+        val parts = text.split(".")
+        if (parts.size != 4) return null
+        val numbers = ArrayList<Int>()
+        for (part in parts) {
+            if (!Regex("^(0|[1-9][0-9]{0,2})$").matches(part)) return null
+            val number = part.toInt()
+            if (number > 255) return null
+            numbers.add(number)
+        }
+        return numbers
+    }
+
+    private fun normalizeRouterIp(value: String?): String? {
+        val numbers = parseRouterIp(value) ?: return null
+        val unusable = numbers.all { it == 0 } || numbers.all { it == 255 } || numbers[0] in 224..239
+        return if (unusable) null else numbers.joinToString(".")
+    }
+
+    private fun routerIpError(value: String?): String {
+        val text = (value ?: "").trim().replace(Regex("^[A-Za-z][A-Za-z0-9+.-]*://"), "").substringBefore('/').trim()
+        return when {
+            text.isEmpty() -> "Alamat IP tidak boleh kosong."
+            text.contains(":") -> "Cukup alamat IP saja, tanpa port (jalur /ubus sudah tetap)."
+            parseRouterIp(value) != null -> "Alamat IP ini tidak bisa dipakai sebagai alamat router."
+            else -> "Format IP tidak valid. Contoh: 192.168.0.1"
+        }
+    }
+
     inner class RouterBridge {
         @JavascriptInterface
         fun checkForApkUpdate(channel: String?) {
@@ -619,28 +654,88 @@ class MainActivity : Activity() {
             return internetOk
         }
 
-        private fun buildRouterData(): String {
-            val data = JSONObject()
-            try {
-                val url = URL("http://192.168.0.1/ubus/?t=${System.currentTimeMillis()}")
-                val connection = (url.openConnection() as HttpURLConnection).apply {
-                    requestMethod = "POST"; connectTimeout = 3000; readTimeout = 3000; doOutput = true
-                    setRequestProperty("Content-Type", "application/json")
-                    setRequestProperty("Referer", "http://192.168.0.1/index.html")
-                    setRequestProperty("Origin", "http://192.168.0.1")
-                    setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130.0 Mobile Safari/537.36")
-                    setRequestProperty("z-mode", "0"); setRequestProperty("z-tag", "nwinfo_get_netinfo")
-                    setRequestProperty("X-Requested-With", "XMLHttpRequest")
+        // ---- Konfigurasi alamat router (SharedPreferences) ----
+        private val settings by lazy { getSharedPreferences("ira_settings", android.content.Context.MODE_PRIVATE) }
+
+        private fun routerIp(): String =
+            normalizeRouterIp(settings.getString("router_ip", null) ?: defaultRouterIp) ?: defaultRouterIp
+
+        @JavascriptInterface
+        fun getRouterConfig(): String = JSONObject()
+            .put("ip", routerIp())
+            .put("configured", settings.getBoolean("router_ip_confirmed", false))
+            .put("default", defaultRouterIp)
+            .toString()
+
+        @JavascriptInterface
+        fun setRouterIp(ip: String?): String {
+            val normalized = normalizeRouterIp(ip)
+                ?: return JSONObject().put("success", false).put("error", routerIpError(ip)).toString()
+            settings.edit().putString("router_ip", normalized).putBoolean("router_ip_confirmed", true).apply()
+            return JSONObject().put("success", true).put("ip", normalized).put("configured", true).toString()
+        }
+
+        // Uji koneksi di thread latar; hasil dikirim ke window.onRouterTest(id, hasil).
+        @JavascriptInterface
+        fun testRouterConnection(id: Int, ip: String?) {
+            Thread {
+                val result = JSONObject()
+                val target = if (ip.isNullOrBlank()) routerIp() else normalizeRouterIp(ip)
+                if (target == null) {
+                    result.put("success", false).put("ip", JSONObject.NULL).put("error", routerIpError(ip))
+                } else {
+                    val notZte = "$target dapat dihubungi, tetapi balasannya bukan dari router ZTE yang didukung."
+                    val started = System.currentTimeMillis()
+                    try {
+                        val telemetry = requestRouter(target, 3000)
+                        val elapsed = System.currentTimeMillis() - started
+                        if (telemetry != null && telemetry.length() > 0) {
+                            result.put("success", true).put("ip", target).put("message", "Router terhubung ($target, $elapsed ms).")
+                        } else {
+                            result.put("success", false).put("ip", target).put("reachable", true).put("error", notZte)
+                        }
+                    } catch (_: org.json.JSONException) {
+                        result.put("success", false).put("ip", target).put("reachable", true).put("error", notZte)
+                    } catch (_: Exception) {
+                        result.put("success", false).put("ip", target)
+                            .put("error", "Router tidak bisa dihubungi di $target. Periksa alamat IP dan koneksi ke router.")
+                    }
                 }
+                val script = "window.onRouterTest && window.onRouterTest($id, $result);"
+                runOnUiThread { webView.evaluateJavascript(script, null) }
+            }.start()
+        }
+
+        // Memanggil zte_nwinfo_api di router. Melempar IOException bila tak terjangkau, JSONException bila bukan JSON.
+        private fun requestRouter(ip: String, timeoutMs: Int): JSONObject? {
+            val url = URL("http://$ip/ubus/?t=${System.currentTimeMillis()}")
+            val connection = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"; connectTimeout = timeoutMs; readTimeout = timeoutMs; doOutput = true
+                setRequestProperty("Content-Type", "application/json")
+                setRequestProperty("Referer", "http://$ip/index.html")
+                setRequestProperty("Origin", "http://$ip")
+                setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130.0 Mobile Safari/537.36")
+                setRequestProperty("z-mode", "0"); setRequestProperty("z-tag", "nwinfo_get_netinfo")
+                setRequestProperty("X-Requested-With", "XMLHttpRequest")
+            }
+            try {
                 val payload = """[{"jsonrpc":"2.0","method":"call","params":["00000000000000000000000000000000","zte_nwinfo_api","nwinfo_get_netinfo",{}],"id":1}]"""
                 connection.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
                 val array = JSONArray(connection.inputStream.bufferedReader().use { it.readText() })
-                val telemetry = array.optJSONObject(0)?.optJSONArray("result")?.optJSONObject(1)
+                return array.optJSONObject(0)?.optJSONArray("result")?.optJSONObject(1)
+            } finally {
+                connection.disconnect()
+            }
+        }
+
+        private fun buildRouterData(): String {
+            val data = JSONObject()
+            try {
+                val telemetry = requestRouter(routerIp(), 3000)
                 if (telemetry != null) {
                     val keys = telemetry.keys()
                     while (keys.hasNext()) { val key = keys.next(); data.put(key, telemetry.opt(key)) }
                 }
-                connection.disconnect()
             } catch (_: Exception) { }
             data.put("internet_ok", internetState())
             return data.toString()
