@@ -483,7 +483,23 @@ class MainActivity : Activity() {
         }
     }
 
+    // Mode gelap/terang sistem berubah (uiMode ditangani sendiri lewat configChanges): beri tahu halaman agar
+    // tema "Ikuti sistem" langsung menyesuaikan.
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (::webView.isInitialized) {
+            webView.evaluateJavascript("window.onSystemThemeChanged && window.onSystemThemeChanged();", null)
+        }
+    }
+
     inner class RouterBridge {
+        // WebView melaporkan prefers-color-scheme menurut tema aplikasi (terang), jadi mode sistem dibaca di sini.
+        @JavascriptInterface
+        fun isSystemDarkMode(): Boolean {
+            val mode = resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
+            return mode == android.content.res.Configuration.UI_MODE_NIGHT_YES
+        }
+
         @JavascriptInterface
         fun checkForApkUpdate(channel: String?) {
             val selectedChannel = if (channel.equals("beta", true)) "beta" else "stable"
