@@ -461,6 +461,7 @@ HTML_CONTENT = """
                         <select id="setting-theme" onchange="changeTheme(this.value)" class="w-full bg-slate-950 border border-slate-800 text-xs text-slate-200 p-2 rounded-xl focus:outline-none focus:border-cyan-500 transition-all">
                             <option value="dark" selected>Gelap (Default)</option>
                             <option value="light">Terang</option>
+                            <option value="system">Ikuti sistem</option>
                         </select>
                     </div>
                     <div class="rounded-xl border border-slate-800 bg-slate-950/50 p-3 space-y-2">
@@ -949,6 +950,7 @@ HTML_CONTENT = """
 
         window.addEventListener('DOMContentLoaded', () => {
             loadSettings();
+            try { bindBackdropDismiss(); } catch (error) { console.error('Gagal memasang penutup dialog:', error); }
             requestAnimationFrame(() => resizeSettingsContent('tab-general', false));
         });
 
@@ -1544,13 +1546,15 @@ HTML_CONTENT = """
         }
 
         function loadSettings() {
-            const savedTheme = safeStorage.getItem('router_theme') || 'dark';
+            const storedTheme = safeStorage.getItem('router_theme');
+            const savedTheme = ['dark', 'light', 'system'].includes(storedTheme) ? storedTheme : 'dark';
             const allowedFrequencies = ['1000', '2000', '4000'];
             const storedFreq = safeStorage.getItem('router_freq') || '1000';
             const savedFreq = allowedFrequencies.includes(storedFreq) ? storedFreq : '1000';
 
             document.getElementById('setting-theme').value = savedTheme;
             changeTheme(savedTheme, false);
+            watchSystemTheme();
             document.getElementById('setting-freq').value = savedFreq;
             currentIntervalTime = Number.parseInt(savedFreq, 10);
             document.getElementById('suppress-tower-popup').checked = safeStorage.getItem('suppress_tower_popup') === 'true';
@@ -2056,6 +2060,18 @@ HTML_CONTENT = """
             safeStorage.setItem('auto_update_check', String(document.getElementById('setting-auto-update-check').checked));
         }
 
+
+
+
+
+
+
+
+
+
+
+
+
         function openExternalUrl(url) {
             if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.open_url === 'function') {
                 window.pywebview.api.open_url(url);
@@ -2331,6 +2347,36 @@ HTML_CONTENT = """
             }
         }
 
+        // ===== Klik di luar dialog (pada latar gelap) menutupnya dan kembali ke dashboard =====
+        // Dialog pengaturan awal alamat router sengaja TIDAK ada di sini: harus diselesaikan dulu.
+        const BACKDROP_DISMISS = {
+            settingsModal: () => toggleSettingsModal(),
+            historyModal: () => toggleHistoryModal(),
+            disconnectModal: () => closeDisconnectModal(),
+            reconnectModal: () => closeReconnectModal(),
+            updateModal: () => closeUpdateModal()   // menolak sendiri bila unduhan sedang berjalan
+        };
+
+        function bindBackdropDismiss() {
+            Object.keys(BACKDROP_DISMISS).forEach(modalId => {
+                const overlay = document.getElementById(modalId);
+                const box = document.getElementById(modalId.replace('Modal', 'Box'));
+                if (!overlay || !box) return;
+                const outsideBox = target => !box.contains(target);
+                let pressedOutside = false;
+                // Menyeret seleksi teks dari dalam kotak sampai ke luar tidak boleh menutup dialog:
+                // tekan DAN lepas harus sama-sama di luar kotak.
+                overlay.addEventListener('pointerdown', event => { pressedOutside = outsideBox(event.target); });
+                overlay.addEventListener('click', event => {
+                    const startedOutside = pressedOutside;
+                    pressedOutside = false;
+                    if (!startedOutside || !outsideBox(event.target)) return;
+                    if (overlay.classList.contains('pointer-events-none')) return;   // sedang tertutup
+                    BACKDROP_DISMISS[modalId]();
+                });
+            });
+        }
+
         function closeDisconnectModal() {
             closeModal('disconnectModal', 'disconnectBox');
         }
@@ -2354,10 +2400,43 @@ HTML_CONTENT = """
             body.classList.toggle('theme-light', theme === 'light');
         }
 
-        function changeTheme(theme, save = true) {
-            if (save) {
-                safeStorage.setItem('router_theme', theme);
+        // ===== Mode tampilan: Gelap / Terang / Ikuti sistem =====
+        let themeSetting = 'dark';   // pilihan pengguna: 'dark' | 'light' | 'system'
+        let systemThemeWatched = false;
+
+        function systemPrefersDark() {
+            if (!window.matchMedia) return true;   // tidak bisa ditentukan: pakai tampilan bawaan (gelap)
+            return !!window.matchMedia('(prefers-color-scheme: dark)').matches;
+        }
+
+        function resolveTheme(setting) {
+            return setting === 'system' ? (systemPrefersDark() ? 'dark' : 'light') : setting;
+        }
+
+        // Dipanggil saat mode gelap/terang sistem berubah: hanya berpengaruh bila pengguna memilih "Ikuti sistem".
+        // Tanpa animasi dan tanpa menyimpan (pilihan tersimpan tetap "system").
+        function onSystemThemeChange() {
+            if (themeSetting === 'system') changeTheme('system', false);
+        }
+
+        function watchSystemTheme() {
+            if (systemThemeWatched) return;
+            systemThemeWatched = true;
+            if (window.matchMedia) {
+                const query = window.matchMedia('(prefers-color-scheme: dark)');
+                if (query && query.addEventListener) query.addEventListener('change', onSystemThemeChange);
+                else if (query && query.addListener) query.addListener(onSystemThemeChange);
             }
+            // Cadangan: periksa ulang saat jendela aktif kembali (untuk platform yang tidak mengirim event perubahan).
+            window.addEventListener('focus', onSystemThemeChange);
+        }
+
+        function changeTheme(setting, save = true) {
+            themeSetting = (setting === 'light' || setting === 'system') ? setting : 'dark';
+            if (save) {
+                safeStorage.setItem('router_theme', themeSetting);
+            }
+            const theme = resolveTheme(themeSetting);   // tema efektif (gelap/terang) yang dipakai sekarang
             const root = document.documentElement;
             const body = document.getElementById('app-body');
             const reduceMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
