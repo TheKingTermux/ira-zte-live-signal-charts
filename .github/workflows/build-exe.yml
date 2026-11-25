@@ -59,13 +59,20 @@ jobs:
           python -m pip install pyinstaller pywebview requests urllib3 pillow
       - name: Generate embedded Windows icon from source artwork
         run: python scripts/generate_app_icons.py --platform windows
+      # Metadata EXE: Task Manager menampilkan FileDescription ("IRA ZTE Live Signal Charts"), bukan nama berkas ber-garis-bawah.
+      - name: Generate Windows version info
+        shell: pwsh
+        env:
+          BUILD_VERSION: ${{ steps.version.outputs.value }}
+        run: python scripts/make_version_info.py --version "$env:BUILD_VERSION" --out build-assets/version_info.txt
       - name: Check Python syntax
-        run: python -m py_compile router_app.py scripts/generate_app_icons.py
+        run: python -m py_compile router_app.py scripts/generate_app_icons.py scripts/make_version_info.py
       - name: Build EXE
         run: >-
           python -m PyInstaller --clean --noconfirm --onefile --windowed
           --collect-all webview
           --icon build-assets/icons/IRA_ZTE_Live_Signal_Charts.ico
+          --version-file build-assets/version_info.txt
           --name IRA_ZTE_Live_Signal_Charts
           router_app.py
       - name: Name portable EXE
@@ -78,6 +85,40 @@ jobs:
           if (!(Test-Path $source)) { throw "PyInstaller did not produce the expected EXE: $source" }
           Move-Item -LiteralPath $source -Destination $target
           Write-Host "Created $target"
+
+      # Sertifikat penandatanganan tetap (setara keystore APK): semua rilis memakai sertifikat yang sama sehingga
+      # updater bisa menolak update yang ditandatangani sertifikat lain. Buat sekali dengan scripts/create_windows_codesign_cert.ps1.
+      - name: Prepare persistent Windows signing certificate
+        shell: pwsh
+        env:
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERT_PFX_BASE64) -or [string]::IsNullOrWhiteSpace($env:WINDOWS_CERT_PASSWORD)) {
+            Write-Host "::error::Configure WINDOWS_CERT_PFX_BASE64 and WINDOWS_CERT_PASSWORD repository Actions secrets to sign the EXE and installer (create them with scripts/create_windows_codesign_cert.ps1)."
+            exit 1
+          }
+          $pfx = Join-Path $env:RUNNER_TEMP "ira-zte-codesign.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERT_PFX_BASE64))
+          if ((Get-Item -LiteralPath $pfx).Length -le 0) { throw "Decoded PFX is empty." }
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" -ErrorAction SilentlyContinue |
+            Sort-Object { [version]$_.Directory.Parent.Name } -Descending | Select-Object -First 1
+          if (-not $signtool) { throw "signtool.exe (Windows SDK) was not found on this runner." }
+          # Memeriksa PFX + kata sandi sekaligus mencatat thumbprint sebagai pegangan.
+          $flags = [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet
+          $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($pfx, $env:WINDOWS_CERT_PASSWORD, $flags)
+          if ($cert.NotAfter -lt (Get-Date)) { throw "The signing certificate expired on $($cert.NotAfter)." }
+          Write-Host "Signing certificate: $($cert.Subject) | thumbprint $($cert.Thumbprint) | expires $($cert.NotAfter)"
+          "WINDOWS_CERT_PATH=$pfx" >> $env:GITHUB_ENV
+          "WINDOWS_CERT_PASSWORD=$($env:WINDOWS_CERT_PASSWORD)" >> $env:GITHUB_ENV
+          "WINDOWS_CERT_THUMBPRINT=$($cert.Thumbprint)" >> $env:GITHUB_ENV
+          "SIGNTOOL_PATH=$($signtool.FullName)" >> $env:GITHUB_ENV
+      - name: Sign portable EXE
+        shell: pwsh
+        env:
+          BUILD_VERSION: ${{ steps.version.outputs.value }}
+        run: ./scripts/sign_windows_file.ps1 -File "dist/IRA_ZTE_Live_Signal_Charts-Portable-$($env:BUILD_VERSION).exe"
+
       - name: Install Inno Setup
         shell: pwsh
         run: choco install innosetup --no-progress -y
@@ -93,6 +134,18 @@ jobs:
           if (!(Test-Path $iscc)) { throw "Inno Setup compiler (ISCC.exe) was not found." }
           & $iscc "/DMyAppVersion=$($env:BUILD_VERSION)" "installer/IRA_ZTE_Live_Signal_Charts.iss"
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed with exit code $LASTEXITCODE" }
+      - name: Sign installer
+        shell: pwsh
+        env:
+          BUILD_VERSION: ${{ steps.version.outputs.value }}
+        run: ./scripts/sign_windows_file.ps1 -File "dist/IRA_ZTE_Live_Signal_Charts-Setup-$($env:BUILD_VERSION).exe"
+      - name: Remove signing certificate from runner
+        if: always()
+        shell: pwsh
+        run: |
+          if ($env:WINDOWS_CERT_PATH -and (Test-Path -LiteralPath $env:WINDOWS_CERT_PATH)) {
+            Remove-Item -LiteralPath $env:WINDOWS_CERT_PATH -Force
+          }
       - name: Upload Windows EXE artifacts
         uses: actions/upload-artifact@v4
         with:

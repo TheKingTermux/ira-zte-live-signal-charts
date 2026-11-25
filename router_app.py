@@ -9,9 +9,19 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+import copy
+import http.client
+import ipaddress
+import json
+import re
+import select
+import ssl
+from collections import deque
+from urllib.parse import urlsplit
 
 APP_VERSION = "1.1-dev.3"
 SPEED_TEST_ENDPOINT = "https://speed.cloudflare.com"
+DEFAULT_ROUTER_IP = "192.168.0.1"
 GITHUB_REPOSITORY = "TheKingTermux/ira-zte-live-signal-charts"
 GITHUB_RELEASES_API = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/releases?per_page=30"
 
@@ -241,7 +251,8 @@ HTML_CONTENT = """
                     <span class="text-[9px] text-slate-400 -mt-0.5">Daya Terima Sinyal</span>
                     <div id="val-rsrp" class="text-base font-bold text-slate-100 leading-tight">- dBm</div>
                 </div>
-                <div class="chart-container h-12">\1<canvas id="chartRsrp"></canvas>
+                <div class="chart-container h-12">
+                    <canvas id="chartRsrp"></canvas>
                 </div>
             </div>
 
@@ -258,7 +269,8 @@ HTML_CONTENT = """
                     <span class="text-[9px] text-slate-400 -mt-0.5">Kekuatan Total & Derau</span>
                     <div id="val-rssi" class="text-base font-bold text-slate-100 leading-tight">- dBm</div>
                 </div>
-                <div class="chart-container h-12">\1<canvas id="chartRssi"></canvas>
+                <div class="chart-container h-12">
+                    <canvas id="chartRssi"></canvas>
                 </div>
             </div>
 
@@ -275,7 +287,8 @@ HTML_CONTENT = """
                     <span class="text-[9px] text-slate-400 -mt-0.5">Kualitas Sinyal</span>
                     <div id="val-rsrq" class="text-base font-bold text-slate-100 leading-tight">- dB</div>
                 </div>
-                <div class="chart-container h-12">\1<canvas id="chartRsrq"></canvas>
+                <div class="chart-container h-12">
+                    <canvas id="chartRsrq"></canvas>
                 </div>
             </div>
 
@@ -292,7 +305,8 @@ HTML_CONTENT = """
                     <span class="text-[9px] text-slate-400 -mt-0.5">Kebersihan Sinyal</span>
                     <div id="val-sinr" class="text-base font-bold text-slate-100 leading-tight">- dB</div>
                 </div>
-                <div class="chart-container h-12">\1<canvas id="chartSinr"></canvas>
+                <div class="chart-container h-12">
+                    <canvas id="chartSinr"></canvas>
                 </div>
             </div>
 
@@ -311,7 +325,8 @@ HTML_CONTENT = """
                     <span id="ping-chart-title" class="text-[9px] text-slate-400 -mt-0.5">📈 Ping Latency</span>
                     <div id="val-ping" class="text-base font-bold text-slate-100 leading-tight">— ms</div>
                 </div>
-                <div class="chart-container h-12">\1<canvas id="chartPing"></canvas>
+                <div class="chart-container h-12">
+                    <canvas id="chartPing"></canvas>
                 </div>
             </div>
 
@@ -478,6 +493,22 @@ HTML_CONTENT = """
                         <input id="setting-ping-freq-custom" type="number" min="1" max="3600" step="1" placeholder="Interval custom (detik)" oninput="changePingFrequency('custom')" class="hidden mt-2 w-full bg-slate-950 border border-slate-800 text-xs text-slate-200 p-2 rounded-xl focus:outline-none focus:border-cyan-500 transition-all">
                         <p class="text-[10px] text-slate-500 mt-1">Default mengikuti 2× interval refresh data. Custom: 1–3600 detik.</p>
                     </div>
+                    <div id="router-ip-setting" class="rounded-xl border border-slate-800 bg-slate-950/50 p-3 space-y-2">
+                        <div>
+                            <label for="router-ip-input" class="text-[11px] font-semibold text-slate-300 block">Alamat IP Router</label>
+                            <p class="text-[10px] text-slate-500">Cukup alamat IP-nya saja (contoh 192.168.0.1). Jalur <span class="font-mono">/ubus</span> tetap otomatis.</p>
+                        </div>
+                        <div class="flex gap-2">
+                            <input id="router-ip-input" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="192.168.0.1" onkeydown="if (event.key === 'Enter') saveRouterIpSetting()" class="w-full bg-slate-950 border border-slate-800 text-xs text-slate-200 p-2 rounded-xl focus:outline-none focus:border-cyan-500 transition-all font-mono">
+                            <button onclick="animateButton(this); saveRouterIpSetting()" class="bg-cyan-600 hover:bg-cyan-500 text-white px-3 py-2 rounded-xl text-xs font-semibold transition-all active:scale-95">Simpan</button>
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="animateButton(this); testRouterIpSetting()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 px-3 py-2 rounded-xl text-xs font-semibold transition-all active:scale-95">Uji koneksi</button>
+                            <button onclick="animateButton(this); resetRouterIpDefault()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 px-3 py-2 rounded-xl text-xs font-semibold transition-all active:scale-95">Default (192.168.0.1)</button>
+                        </div>
+                        <p id="router-ip-status" class="text-[10px] text-slate-500"></p>
+                    </div>
+
                     <div id="startup-setting" class="hidden rounded-xl border border-slate-800 bg-slate-950/50 p-3">
                         <label class="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer select-none">
                             <input id="setting-startup" type="checkbox" onchange="changeStartup(this.checked)" class="accent-cyan-500">
@@ -507,7 +538,7 @@ HTML_CONTENT = """
                     <div class="flex flex-wrap items-center justify-between gap-2">
                         <div>
                             <div class="text-sm font-bold text-cyan-300">⚡ Internet Speed Test</div>
-                            <p class="text-[10px] text-slate-400">Tes berurutan: download 30 dtk → upload 30 dtk → latensi 30 dtk, dengan statistik min / rata-rata / maks.</p>
+                            <p class="text-[10px] text-slate-400">Tes bergaya Ookla: latensi → download → upload (±12 dtk per tahap, 4 koneksi paralel). Hasil tiap tahap langsung tampil begitu selesai.</p>
                         </div>
                         <button onclick="animateButton(this); runSpeedTest()" id="btn-speed-test" class="bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-xl text-xs font-semibold transition-all active:scale-95">▶ Mulai Speed Test</button>
                     </div>
@@ -628,6 +659,28 @@ HTML_CONTENT = """
             <div class="pt-3 flex justify-end border-t border-slate-800 mt-3 shrink-0 bg-slate-900">
                 <button onclick="animateButton(this); toggleSettingsModal()" class="w-full bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold py-2.5 rounded-xl shadow-lg transition-all active:scale-95">Tutup</button>
             </div>
+        </div>
+    </div>
+
+    <!-- Pengaturan awal: alamat IP router (muncul sekali, pertama kali aplikasi dibuka) -->
+    <div id="routerSetupModal" class="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/85 backdrop-blur-sm opacity-0 pointer-events-none modal-transition">
+        <div id="routerSetupBox" class="bg-slate-900 border border-cyan-500/40 p-5 rounded-2xl max-w-md w-full mx-4 max-h-[94vh] overflow-y-auto shadow-2xl shadow-cyan-500/10 text-slate-100 transform scale-95 transition-transform duration-200">
+            <div class="flex items-start gap-3 pb-3 border-b border-slate-800 mb-3">
+                <div class="text-3xl leading-none">🌐</div>
+                <div class="min-w-0 flex-1">
+                    <h3 class="text-sm font-bold text-cyan-300">Alamat IP Router</h3>
+                    <p class="text-[11px] text-slate-400">Pengaturan awal</p>
+                </div>
+            </div>
+            <p class="text-xs text-slate-300">Masukkan alamat IP router ZTE Anda. Cukup IP-nya saja, jalur <span class="font-mono text-cyan-300">/ubus</span> sudah tetap.</p>
+            <p class="text-[11px] text-slate-400 mt-1">Bisa dirubah di pengaturan.</p>
+            <input id="router-setup-input" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="192.168.0.1" value="192.168.0.1" onkeydown="if (event.key === 'Enter') saveRouterSetup()" class="w-full bg-slate-950 border border-slate-800 text-xs text-slate-200 p-2 rounded-xl focus:outline-none focus:border-cyan-500 transition-all font-mono mt-3">
+            <p id="router-setup-status" class="text-[10px] text-slate-500 mt-2 min-h-[14px]"></p>
+            <div class="flex flex-wrap gap-2 mt-3">
+                <button onclick="animateButton(this); testRouterSetup()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 px-3 py-2 rounded-xl text-xs font-semibold transition-all active:scale-95">Uji koneksi</button>
+                <button onclick="animateButton(this); saveRouterSetup()" class="bg-cyan-600 hover:bg-cyan-500 text-white px-3 py-2 rounded-xl text-xs font-semibold transition-all active:scale-95 flex-1">Simpan &amp; mulai</button>
+            </div>
+            <button onclick="useDefaultRouterIp()" class="mt-3 w-full text-[11px] text-slate-400 hover:text-cyan-300 underline underline-offset-2">Pakai default (192.168.0.1)</button>
         </div>
     </div>
 
@@ -901,6 +954,144 @@ HTML_CONTENT = """
 
         let pywebviewInitialized = false;
 
+        // ===== Alamat router (cukup IP; jalur /ubus tetap) =====
+        const ROUTER_DEFAULT_IP = '192.168.0.1';
+        let routerConfig = { ip: ROUTER_DEFAULT_IP, configured: true };
+        let routerSetupResolver = null;
+
+        function normalizeRouterIpInput(value) {
+            let text = String(value === null || value === undefined ? '' : value).trim();
+            text = text.replace(new RegExp('^[a-zA-Z][a-zA-Z0-9+.-]*://'), '');   // buang http:// atau https://
+            text = text.split('/')[0].trim();                                      // buang path: /ubus sudah tetap
+            if (!text) return { error: 'Alamat IP tidak boleh kosong.' };
+            if (text.indexOf(':') >= 0) return { error: 'Cukup alamat IP saja, tanpa port (jalur /ubus sudah tetap).' };
+            const parts = text.split('.');
+            const valid = parts.length === 4 && parts.every(part => new RegExp('^(0|[1-9][0-9]{0,2})$').test(part) && Number(part) <= 255);
+            if (!valid) return { error: 'Format IP tidak valid. Contoh: 192.168.0.1' };
+            const ip = parts.map(Number).join('.');
+            const first = Number(parts[0]);
+            if (ip === '0.0.0.0' || ip === '255.255.255.255' || (first >= 224 && first <= 239)) {
+                return { error: 'Alamat IP ini tidak bisa dipakai sebagai alamat router.' };
+            }
+            return { ip: ip };
+        }
+
+        function setRouterStatus(id, message, kind) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.innerText = message || '';
+            el.className = 'text-[10px] ' + (kind === 'ok' ? 'text-emerald-400' : (kind === 'error' ? 'text-red-400' : 'text-slate-500'));
+        }
+
+        async function loadRouterConfig() {
+            try {
+                const config = await platformGetRouterConfig();
+                if (config && config.ip) routerConfig = { ip: config.ip, configured: !!config.configured };
+            } catch (error) {
+                console.error('Gagal membaca konfigurasi router:', error);
+                routerConfig = { ip: ROUTER_DEFAULT_IP, configured: true };   // jangan memblokir aplikasi
+            }
+            const input = document.getElementById('router-ip-input');
+            if (input) input.value = routerConfig.ip;
+            return routerConfig;
+        }
+
+        async function testRouterIp(inputId, statusId) {
+            const normalized = normalizeRouterIpInput(document.getElementById(inputId).value);
+            if (normalized.error) { setRouterStatus(statusId, normalized.error, 'error'); return false; }
+            setRouterStatus(statusId, 'Menguji koneksi ke ' + normalized.ip + '…', 'info');
+            try {
+                const result = await platformTestRouter(normalized.ip);
+                if (result && result.success) {
+                    setRouterStatus(statusId, '✅ ' + (result.message || 'Router terhubung.'), 'ok');
+                    return true;
+                }
+                setRouterStatus(statusId, '⚠️ ' + ((result && result.error) || 'Router tidak merespons.'), 'error');
+            } catch (error) {
+                setRouterStatus(statusId, '⚠️ Gagal menguji koneksi: ' + (error && error.message ? error.message : error), 'error');
+            }
+            return false;
+        }
+
+        async function saveRouterIpFrom(inputId, statusId) {
+            const normalized = normalizeRouterIpInput(document.getElementById(inputId).value);
+            if (normalized.error) { setRouterStatus(statusId, normalized.error, 'error'); return false; }
+            try {
+                const result = await platformSetRouterIp(normalized.ip);
+                if (!result || !result.success) {
+                    setRouterStatus(statusId, (result && result.error) || 'Gagal menyimpan alamat router.', 'error');
+                    return false;
+                }
+                routerConfig = { ip: result.ip, configured: true };
+                const settingsInput = document.getElementById('router-ip-input');
+                if (settingsInput) settingsInput.value = result.ip;
+                setRouterStatus(statusId, '✅ Tersimpan: ' + result.ip, 'ok');
+                return true;
+            } catch (error) {
+                setRouterStatus(statusId, 'Gagal menyimpan: ' + (error && error.message ? error.message : error), 'error');
+                return false;
+            }
+        }
+
+        async function saveRouterIpSetting() {
+            if (await saveRouterIpFrom('router-ip-input', 'router-ip-status')) {
+                if (typeof fetchTelemetry === 'function') fetchTelemetry();   // langsung pakai alamat baru
+            }
+        }
+
+        function testRouterIpSetting() { return testRouterIp('router-ip-input', 'router-ip-status'); }
+
+        function resetRouterIpDefault() {
+            document.getElementById('router-ip-input').value = ROUTER_DEFAULT_IP;
+            return saveRouterIpSetting();
+        }
+
+        function setRouterSetupVisible(visible) {
+            const modal = document.getElementById('routerSetupModal');
+            const box = document.getElementById('routerSetupBox');
+            if (visible) {
+                modal.classList.remove('opacity-0', 'pointer-events-none');
+                box.classList.remove('scale-95');
+                box.classList.add('scale-100');
+            } else {
+                modal.classList.add('opacity-0', 'pointer-events-none');
+                box.classList.add('scale-95');
+                box.classList.remove('scale-100');
+            }
+        }
+
+        function testRouterSetup() { return testRouterIp('router-setup-input', 'router-setup-status'); }
+
+        async function saveRouterSetup() {
+            if (!(await saveRouterIpFrom('router-setup-input', 'router-setup-status'))) return;
+            setRouterSetupVisible(false);
+            if (routerSetupResolver) {
+                const resolve = routerSetupResolver;
+                routerSetupResolver = null;
+                resolve();
+            }
+        }
+
+        function useDefaultRouterIp() {
+            document.getElementById('router-setup-input').value = ROUTER_DEFAULT_IP;
+            return saveRouterSetup();
+        }
+
+        // Pertama kali aplikasi dibuka: tanyakan alamat router (dengan keterangan "bisa dirubah di pengaturan").
+        // Promise baru selesai setelah pengguna menyimpan, sehingga pembacaan data menunggu alamat yang benar.
+        async function ensureRouterConfigured() {
+            await loadRouterConfig();
+            if (routerConfig.configured) return;
+            document.getElementById('router-setup-input').value = routerConfig.ip;
+            setRouterStatus('router-setup-status', 'Default: ' + ROUTER_DEFAULT_IP, 'info');
+            setRouterSetupVisible(true);
+            return new Promise(resolve => { routerSetupResolver = resolve; });
+        }
+
+        async function platformGetRouterConfig() { return await window.pywebview.api.get_router_config(); }
+        async function platformSetRouterIp(ip) { return await window.pywebview.api.set_router_config(ip); }
+        async function platformTestRouter(ip) { return await window.pywebview.api.test_router_connection(ip); }
+
         function initializeDesktopBridge() {
             if (pywebviewInitialized || !window.pywebview || !window.pywebview.api) return;
             pywebviewInitialized = true;
@@ -931,7 +1122,8 @@ HTML_CONTENT = """
             }
             loadStartupSetting();
             // Telemetri dimuat setelah splash selesai (judul -> logo -> jeda -> dashboard).
-            whenSplashDone(() => {
+            whenSplashDone(async () => {
+                await ensureRouterConfigured();   // pertama kali: tanya alamat router dulu
                 startPolling();
                 startPingMonitor();
             });
@@ -1179,7 +1371,6 @@ HTML_CONTENT = """
 
         let speedChartInstance = null;
         let speedTestRunning = false;
-        const SPEED_PHASE_SECONDS = 30;
 
         function setSpeedProgress(percent, message) {
             const value = Math.max(0, Math.min(100, percent));
@@ -1204,16 +1395,6 @@ HTML_CONTENT = """
         }
 
         const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-
-        function getStats(values, decimals = 2) {
-            if (!values.length) return { min: null, max: null, avg: null, samples: [] };
-            return {
-                min: Number(Math.min(...values).toFixed(decimals)),
-                max: Number(Math.max(...values).toFixed(decimals)),
-                avg: Number((values.reduce((a, b) => a + b, 0) / values.length).toFixed(decimals)),
-                samples: values.slice()
-            };
-        }
 
         function initSpeedChart() {
             if (speedChartInstance) speedChartInstance.destroy();
@@ -1248,9 +1429,76 @@ HTML_CONTENT = """
             speedChartInstance.update('none');
         }
 
+        const SPEED_PHASES = {
+            download: { label: 'Download', dataset: 0, value: 'speed-download', status: 'speed-download-status', min: 'speed-dl-min', avg: 'speed-dl-avg', max: 'speed-dl-max', decimals: 2 },
+            upload: { label: 'Upload', dataset: 1, value: 'speed-upload', status: 'speed-upload-status', min: 'speed-ul-min', avg: 'speed-ul-avg', max: 'speed-ul-max', decimals: 2 },
+            latency: { label: 'Latensi', dataset: 2, value: 'speed-latency', status: 'speed-latency-status', min: 'speed-lat-min', avg: 'speed-lat-avg', max: 'speed-lat-max', decimals: 1 }
+        };
+        const SPEED_STATE_LABELS = { idle: 'Siap', latency: 'Mengukur latensi', download: 'Download berlangsung', upload: 'Upload berlangsung', done: 'Selesai', error: 'Gagal', cancelled: 'Dibatalkan' };
+
+        function setSpeedStateText(text, tone) {
+            const el = document.getElementById('speed-state');
+            el.innerText = text;
+            el.className = 'text-sm font-bold ' + (tone === 'ok' ? 'text-emerald-400' : (tone === 'error' ? 'text-red-400' : 'text-cyan-300'));
+        }
+
+        // Menerapkan status terbaru dari mesin speed test. Hasil sebuah tahap ditampilkan SEGERA saat tahap itu
+        // selesai (tidak menunggu tahap lain); selama berjalan, angka menampilkan kecepatan langsung.
+        function applySpeedStatus(status, view) {
+            const tone = status.phase === 'done' ? 'ok' : (status.phase === 'error' ? 'error' : 'info');
+            setSpeedStateText(SPEED_STATE_LABELS[status.phase] || status.phase, tone);
+            document.getElementById('speed-elapsed').innerText = Number(status.elapsed || 0).toFixed(1) + ' detik' + (status.server ? ' · ' + status.server : '');
+            setSpeedProgress((status.progress || 0) * 100, status.message || '');
+            Object.keys(SPEED_PHASES).forEach(kind => {
+                const meta = SPEED_PHASES[kind];
+                const samples = (status.samples && status.samples[kind]) || [];
+                for (let index = view.seen[kind]; index < samples.length; index++) {
+                    appendSpeedSample(samples[index][0], meta.dataset, samples[index][1]);
+                }
+                view.seen[kind] = samples.length;
+                const result = status.results && status.results[kind];
+                if (result) {
+                    if (!view.done[kind]) {
+                        view.done[kind] = true;
+                        animateNumber(meta.value, result.avg, meta.decimals, 600);
+                        animateNumber(meta.min, result.min, meta.decimals, 600);
+                        animateNumber(meta.avg, result.avg, meta.decimals, 600);
+                        animateNumber(meta.max, result.max, meta.decimals, 600);
+                        document.getElementById(meta.status).innerText = 'Selesai · rata-rata' + (kind === 'latency' && result.jitter !== undefined ? ' · jitter ' + result.jitter + ' ms' : '');
+                    }
+                } else if (status.phase === kind && status.current && status.current[kind] !== null && status.current[kind] !== undefined) {
+                    document.getElementById(meta.value).innerText = Number(status.current[kind]).toFixed(meta.decimals);
+                    document.getElementById(meta.status).innerText = 'Mengukur…';
+                }
+            });
+        }
+
+        function finishSpeedTest(status) {
+            const errors = status.phase_errors || {};
+            Object.keys(SPEED_PHASES).forEach(kind => {
+                if (status.results && status.results[kind]) return;
+                const text = errors[kind] ? 'Gagal: ' + errors[kind] : (status.phase === 'cancelled' ? 'Dibatalkan' : 'Tidak ada hasil');
+                document.getElementById(SPEED_PHASES[kind].status).innerText = text;
+            });
+            if (status.phase === 'done') {
+                setSpeedStateText(status.error ? 'Selesai sebagian' : 'Selesai', status.error ? 'info' : 'ok');
+                setSpeedProgress(100, status.error ? 'Selesai, tetapi: ' + status.error : 'Selesai. Hasil setiap tahap ditampilkan begitu tahap itu rampung.');
+            } else if (status.phase === 'cancelled') {
+                setSpeedStateText('Dibatalkan', 'info');
+                setSpeedProgress((status.progress || 0) * 100, 'Speed test dibatalkan.');
+            } else {
+                setSpeedStateText('Gagal', 'error');
+                setSpeedProgress(100, 'Pengujian dihentikan: ' + (status.error || 'terjadi kesalahan'));
+            }
+        }
+
         async function runSpeedTest() {
-            if (speedTestRunning) return;
-            if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.run_speed_sample !== 'function') {
+            const api = window.pywebview && window.pywebview.api;
+            if (speedTestRunning) {   // tombol berubah menjadi "Batalkan" saat tes berjalan
+                try { await api.cancel_speed_test(); } catch (error) { console.error(error); }
+                return;
+            }
+            if (!api || typeof api.start_speed_test !== 'function' || typeof api.get_speed_test_status !== 'function') {
                 document.getElementById('speed-state').innerText = 'API tidak tersedia';
                 document.getElementById('speed-message').innerText = 'API speed test belum siap. Tunggu aplikasi selesai dimuat, lalu coba lagi.';
                 return;
@@ -1258,106 +1506,32 @@ HTML_CONTENT = """
 
             speedTestRunning = true;
             const btn = document.getElementById('btn-speed-test');
-            const started = performance.now();
-            const values = { download: [], upload: [], latency: [] };
-            const failures = { download: 0, upload: 0, latency: 0 };
-            const phases = [
-                { key: 'download', label: 'Download', dataset: 0, unit: 'Mbps', statusId: 'speed-download-status' },
-                { key: 'upload', label: 'Upload', dataset: 1, unit: 'Mbps', statusId: 'speed-upload-status' },
-                { key: 'latency', label: 'Latensi', dataset: 2, unit: 'ms', statusId: 'speed-latency-status' }
-            ];
-            let elapsedTimer = null;
+            const view = { seen: { latency: 0, download: 0, upload: 0 }, done: {} };
             try {
-            btn.disabled = true;
-            btn.innerText = '⏳ Tes download → upload → latensi…';
-            document.getElementById('speed-state').innerText = 'Menghubungkan ke server speed test…';
-            document.getElementById('speed-message').innerText =
-                'Tes akan dimulai setelah server Cloudflare merespons. Setiap sampel memiliki batas waktu dan error akan ditampilkan di sini.';
-            document.getElementById('speed-state').className = 'text-sm font-bold text-cyan-300';
-            document.getElementById('speed-elapsed').innerText = '0.0 / 90 detik';
-            ['speed-download','speed-upload','speed-latency','speed-dl-min','speed-dl-avg','speed-dl-max','speed-ul-min','speed-ul-avg','speed-ul-max','speed-lat-min','speed-lat-avg','speed-lat-max'].forEach(id => document.getElementById(id).innerText = '—');
-            document.getElementById('speed-download-status').innerText = 'Menunggu giliran';
-            document.getElementById('speed-upload-status').innerText = 'Menunggu giliran';
-            document.getElementById('speed-latency-status').innerText = 'Menunggu giliran';
-            initSpeedChart();
+                btn.innerText = '⏹ Batalkan Tes';
+                setSpeedStateText('Menghubungkan…', 'info');
+                document.getElementById('speed-message').innerText = 'Menghubungkan ke server Cloudflare…';
+                document.getElementById('speed-elapsed').innerText = '0.0 detik';
+                ['speed-download', 'speed-upload', 'speed-latency', 'speed-dl-min', 'speed-dl-avg', 'speed-dl-max', 'speed-ul-min', 'speed-ul-avg', 'speed-ul-max', 'speed-lat-min', 'speed-lat-avg', 'speed-lat-max'].forEach(id => document.getElementById(id).innerText = '—');
+                Object.keys(SPEED_PHASES).forEach(kind => { document.getElementById(SPEED_PHASES[kind].status).innerText = 'Menunggu giliran'; });
+                setSpeedProgress(0);
+                initSpeedChart();
 
-            elapsedTimer = setInterval(() => {
-                const elapsed = (performance.now() - started) / 1000;
-                document.getElementById('speed-elapsed').innerText = elapsed.toFixed(1) + ' / 90 detik';
-            }, 100);
-
-                for (let phaseIndex = 0; phaseIndex < phases.length; phaseIndex++) {
-                    const phase = phases[phaseIndex];
-                    const phaseStarted = performance.now();
-                    document.getElementById('speed-state').innerText = phase.label + ' berlangsung';
-                    document.getElementById(phase.statusId).innerText = 'Memulai pengukuran 30 detik…';
-                    setSpeedProgress((phaseIndex / 3) * 100, `Fase ${phaseIndex + 1}/3: ${phase.label} · 30 detik`);
-                    let nextSampleAt = phaseStarted;
-
-                    while ((performance.now() - phaseStarted) < SPEED_PHASE_SECONDS * 1000) {
-                        const callStarted = performance.now();
-                        const remainingPhase = SPEED_PHASE_SECONDS * 1000 - (callStarted - phaseStarted);
-                        try {
-                            document.getElementById(phase.statusId).innerText =
-                                `Menghubungi server untuk ${phase.label.toLowerCase()}…`;
-                            document.getElementById('speed-state').innerText =
-                                `${phase.label}: mengukur sampel ${values[phase.key].length + 1}`;
-                            // Python requests have explicit connect/read timeouts. Avoid Promise.race here:
-                            // abandoning the JS promise would leave the underlying network request running.
-                            const result = await window.pywebview.api.run_speed_sample(phase.key);
-                            if (!result || !result.success || !Number.isFinite(Number(result.value))) {
-                                throw new Error((result && result.error) || 'Hasil sampel tidak valid');
-                            }
-                            const value = Number(result.value);
-                            values[phase.key].push(value);
-                            appendSpeedSample((performance.now() - started) / 1000, phase.dataset, value);
-                            const stats = getStats(values[phase.key], phase.key === 'latency' ? 1 : 2);
-                            const mainId = phase.key === 'download' ? 'speed-download' : phase.key === 'upload' ? 'speed-upload' : 'speed-latency';
-                            animateNumber(mainId, stats.avg, phase.key === 'latency' ? 1 : 2, 220);
-                            document.getElementById(phase.statusId).innerText = `${values[phase.key].length} sampel · ${failures[phase.key]} gagal`;
-                            setSpeedProgress(((phaseIndex * SPEED_PHASE_SECONDS + Math.min(SPEED_PHASE_SECONDS, (performance.now() - phaseStarted) / 1000)) / 90) * 100,
-                                `${phase.label}: ${value.toFixed(phase.key === 'latency' ? 1 : 2)} ${phase.unit} · ${values[phase.key].length} sampel`);
-                        } catch (sampleError) {
-                            failures[phase.key]++;
-                            document.getElementById(phase.statusId).innerText = `Gagal ${failures[phase.key]}x · mencoba lagi`;
-                            document.getElementById('speed-message').innerText =
-                                `${phase.label}: ${sampleError.message || sampleError}. Pastikan internet aktif dan akses ke speed.cloudflare.com tidak diblokir.`;
-                        }
-                        nextSampleAt = Math.max(nextSampleAt + 1000, callStarted + 1000);
-                        const remaining = Math.min(nextSampleAt - performance.now(), remainingPhase);
-                        if (remaining > 0 && (performance.now() - phaseStarted) < SPEED_PHASE_SECONDS * 1000) await sleep(remaining);
+                const started = await api.start_speed_test();
+                if (!started || !started.success) throw new Error((started && started.error) || 'Gagal memulai speed test');
+                for (;;) {
+                    const status = await api.get_speed_test_status();
+                    applySpeedStatus(status, view);
+                    if (!status.running) {
+                        finishSpeedTest(status);
+                        break;
                     }
-                    // Update phase status immediately; don't leave the UI in a "preparing" state.
-                    document.getElementById('speed-state').innerText = phaseIndex < 2 ? `Menyiapkan ${phases[phaseIndex + 1].label.toLowerCase()}` : 'Menyelesaikan hasil';
+                    await sleep(250);
                 }
-
-                const dl = getStats(values.download, 2);
-                const ul = getStats(values.upload, 2);
-                const lat = getStats(values.latency, 1);
-                if (!dl.samples.length || !ul.samples.length || !lat.samples.length) {
-                    throw new Error('Tidak ada sampel yang berhasil untuk salah satu fase. Periksa koneksi internet dan coba lagi.');
-                }
-                for (const [id, stats, decimals] of [
-                    ['speed-download', dl, 2], ['speed-upload', ul, 2], ['speed-latency', lat, 1]
-                ]) animateNumber(id, stats.avg, decimals, 650);
-                for (const [prefix, stats] of [['speed-dl', dl], ['speed-ul', ul], ['speed-lat', lat]]) {
-                    const decimals = prefix === 'speed-lat' ? 1 : 2;
-                    animateNumber(prefix + '-min', stats.min, decimals, 650);
-                    animateNumber(prefix + '-avg', stats.avg, decimals, 650);
-                    animateNumber(prefix + '-max', stats.max, decimals, 650);
-                }
-                document.getElementById('speed-download-status').innerText = `${dl.samples.length} sampel selesai · ${failures.download} gagal`;
-                document.getElementById('speed-upload-status').innerText = `${ul.samples.length} sampel selesai · ${failures.upload} gagal`;
-                document.getElementById('speed-latency-status').innerText = `${lat.samples.length} sampel selesai · ${failures.latency} gagal`;
-                document.getElementById('speed-state').innerText = 'Selesai';
-                document.getElementById('speed-state').className = 'text-sm font-bold text-emerald-400';
-                setSpeedProgress(100, 'Selesai: download 30 dtk → upload 30 dtk → latensi 30 dtk.');
             } catch (error) {
-                document.getElementById('speed-state').innerText = 'Gagal';
-                document.getElementById('speed-state').className = 'text-sm font-bold text-red-400';
+                setSpeedStateText('Gagal', 'error');
                 setSpeedProgress(100, 'Pengujian dihentikan: ' + (error.message || error));
             } finally {
-                if (elapsedTimer) clearInterval(elapsedTimer);
                 speedTestRunning = false;
                 btn.disabled = false;
                 btn.innerText = '▶ Ulangi Speed Test';
@@ -1876,6 +2050,7 @@ HTML_CONTENT = """
             }
         }
 
+
         function saveUpdatePreferences() {
             safeStorage.setItem('update_channel', document.getElementById('setting-update-channel').value);
             safeStorage.setItem('auto_update_check', String(document.getElementById('setting-auto-update-check').checked));
@@ -1944,7 +2119,6 @@ HTML_CONTENT = """
                 'Cek sisa masa aktif paket IRA.',
                 'Coba buka situs lain; jika bisa, kemungkinan hanya server uji yang bermasalah.',
                 'Restart router: cabut listrik 30 detik lalu nyalakan lagi.',
-                'Coba ganti DNS perangkat ke 8.8.8.8 atau 9.9.9.9.',
                 'Jika berlangsung lama, hubungi CS.'
             ]
         };
@@ -2852,6 +3026,430 @@ HTML_CONTENT = """
 
 HTML_CONTENT = HTML_CONTENT.replace("__APP_VERSION__", APP_VERSION)
 
+def _user_config_dir():
+    """Folder konfigurasi per-pengguna (mis. %APPDATA%\\IRA_ZTE_Live_Signal_Charts di Windows)."""
+    if os.name == "nt":
+        base = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
+    else:
+        base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    return Path(base) / "IRA_ZTE_Live_Signal_Charts"
+
+
+class _SpeedTestCancelled(Exception):
+    """Pengguna membatalkan speed test."""
+
+
+class _PhaseFailed(Exception):
+    """Satu tahap (latensi/download/upload) gagal; rate_limited=True bila server membalas HTTP 429."""
+
+    def __init__(self, message, rate_limited=False):
+        super().__init__(message)
+        self.rate_limited = rate_limited
+
+
+class _PhaseControl:
+    """Penghitung byte bersama + sinyal berhenti untuk koneksi-koneksi paralel satu tahap."""
+
+    def __init__(self):
+        self.stop = threading.Event()
+        self.lock = threading.Lock()
+        self.bytes = 0
+        self.errors = []
+        self.rate_limited = 0
+        self.resume_at = 0.0
+
+    def add_bytes(self, amount):
+        with self.lock:
+            self.bytes += amount
+
+    def total(self):
+        with self.lock:
+            return self.bytes
+
+    def note_error(self, error):
+        with self.lock:
+            self.errors.append(f"{type(error).__name__}: {error}")
+
+    def note_rate_limit(self, retry_after):
+        with self.lock:
+            self.rate_limited += 1
+            self.resume_at = max(self.resume_at, time.monotonic() + retry_after)
+
+    def wait_if_limited(self):
+        delay = self.resume_at - time.monotonic()
+        if delay > 0:
+            self.stop.wait(min(delay, 10.0))
+
+
+class SpeedTestEngine:
+    """Speed test bergaya Ookla: koneksi paralel yang mengalir terus selama durasi tertentu (tanpa batch).
+
+    Urutan: latensi -> download -> upload. Setiap tahap membuka beberapa koneksi yang terus mengalirkan data;
+    kecepatan dihitung dari jumlah byte yang benar-benar lewat (jendela geser 1 detik) dan hasil akhir dihitung
+    setelah masa pemanasan TCP. Hasil tiap tahap tersedia segera setelah tahap itu selesai.
+
+    Dibanding versi lama (satu permintaan HTTPS baru per sampel): permintaan ke server jauh lebih sedikit
+    (tidak lagi memicu HTTP 429), tidak terpengaruh jabat tangan TLS tiap sampel, dan upload dihitung dari
+    byte yang terkirim sehingga sesuai kecepatan jalur sebenarnya.
+    """
+
+    DOWNLOAD_BYTES = 100_000_000
+    UPLOAD_CLAIM_BYTES = 50_000_000
+    CONNECTIONS = 4
+    PHASE_SECONDS = 12.0
+    WARMUP_SECONDS = 2.0
+    SAMPLE_INTERVAL = 0.2
+    WINDOW_SECONDS = 1.0
+    LATENCY_SAMPLES = 10
+    CHUNK_SIZE = 64 * 1024
+    NO_DATA_SECONDS = 5.0           # tanpa satu byte pun selama ini -> tahap dinyatakan gagal
+    RATE_LIMIT_GRACE_SECONDS = 3.0  # HTTP 429 berulang tanpa data selama ini -> tahap dihentikan
+    USER_AGENT = "IRA-ZTE-Live-Signal-Charts"
+    # Bobot progres keseluruhan per tahap: (awal, lebar)
+    PHASE_SPAN = {"latency": (0.0, 0.1), "download": (0.1, 0.45), "upload": (0.55, 0.45)}
+
+    def __init__(self, endpoint_provider=None):
+        self._endpoint_provider = endpoint_provider or (lambda: SPEED_TEST_ENDPOINT)
+        self._lock = threading.Lock()
+        self._thread = None
+        self._cancel = threading.Event()
+        self._run_id = 0
+        self._ssl_context = None
+        self._upload_chunk = os.urandom(self.CHUNK_SIZE)
+        self._state = self._blank_state(0)
+
+    # ------------------------------------------------------------------ status
+    @staticmethod
+    def _blank_state(run_id, running=False):
+        return {
+            "run_id": run_id, "running": running, "phase": "idle", "message": "", "error": None,
+            "elapsed": 0.0, "progress": 0.0, "server": "",
+            "current": {"latency": None, "download": None, "upload": None},
+            "samples": {"latency": [], "download": [], "upload": []},
+            "results": {"latency": None, "download": None, "upload": None},
+            "phase_errors": {},
+        }
+
+    def status(self):
+        with self._lock:
+            return copy.deepcopy(self._state)
+
+    def _update(self, **fields):
+        with self._lock:
+            self._state.update(fields)
+
+    def _add_sample(self, kind, t, value, phase_fraction):
+        start, span = self.PHASE_SPAN[kind]
+        with self._lock:
+            samples = self._state["samples"][kind]
+            samples.append([round(t, 2), round(value, 2)])
+            if len(samples) > 400:
+                del samples[0]
+            self._state["current"][kind] = round(value, 2)
+            self._state["elapsed"] = round(t, 2)
+            self._state["progress"] = round(min(1.0, start + span * min(1.0, phase_fraction)), 3)
+
+    def _set_result(self, kind, result):
+        start, span = self.PHASE_SPAN[kind]
+        with self._lock:
+            self._state["results"][kind] = result
+            self._state["current"][kind] = result.get("avg")
+            self._state["progress"] = round(start + span, 3)
+
+    def _record_phase_error(self, kind, message):
+        with self._lock:
+            self._state["phase_errors"][kind] = message
+
+    def _finish(self, phase, message, error=None):
+        with self._lock:
+            self._state.update(running=False, phase=phase, message=message, error=error)
+            if phase == "done":
+                self._state["progress"] = 1.0
+
+    # --------------------------------------------------------------- kendali
+    def start(self):
+        with self._lock:
+            if self._thread is not None and self._thread.is_alive():
+                return {"success": False, "error": "Speed test sedang berjalan."}
+            self._run_id += 1
+            run_id = self._run_id
+            self._cancel.clear()
+            self._state = self._blank_state(run_id, running=True)
+            self._state["message"] = "Menghubungkan ke server speed test…"
+            self._thread = threading.Thread(target=self._run, args=(run_id,), daemon=True)
+            self._thread.start()
+        return {"success": True, "run_id": run_id}
+
+    def cancel(self):
+        self._cancel.set()
+        return {"success": True}
+
+    def _check_cancel(self):
+        if self._cancel.is_set():
+            raise _SpeedTestCancelled()
+
+    # ------------------------------------------------------------- koneksi
+    def _parts(self):
+        return urlsplit(self._endpoint_provider())
+
+    def _connect(self, parts, timeout=8):
+        if parts.scheme == "https":
+            if self._ssl_context is None:
+                self._ssl_context = ssl.create_default_context()
+            return http.client.HTTPSConnection(parts.hostname, parts.port or 443, timeout=timeout, context=self._ssl_context)
+        return http.client.HTTPConnection(parts.hostname, parts.port or 80, timeout=timeout)
+
+    def _headers(self):
+        return {"User-Agent": self.USER_AGENT, "Accept-Encoding": "identity", "Cache-Control": "no-cache"}
+
+    @staticmethod
+    def _retry_after(response):
+        try:
+            value = float(response.getheader("Retry-After") or 2)
+        except ValueError:
+            value = 2.0
+        return min(max(value, 1.0), 10.0)
+
+    @staticmethod
+    def _readable(sock):
+        try:
+            if hasattr(sock, "pending") and sock.pending() > 0:
+                return True
+            return bool(select.select([sock], [], [], 0)[0])
+        except (OSError, ValueError):
+            return False
+
+    # ------------------------------------------------------------- orkestrasi
+    def _run(self, run_id):
+        t0 = time.perf_counter()
+        try:
+            self._update(server=self._parts().hostname or "")
+            phases = (
+                ("latency", lambda: self._phase_latency(t0)),
+                ("download", lambda: self._phase_stream("download", t0, self._download_worker)),
+                ("upload", lambda: self._phase_stream("upload", t0, self._upload_worker)),
+            )
+            for kind, runner in phases:
+                self._check_cancel()
+                try:
+                    runner()
+                except _PhaseFailed as failure:
+                    self._record_phase_error(kind, str(failure))
+                    if failure.rate_limited:
+                        raise
+            state = self.status()
+            errors = state["phase_errors"]
+            if errors and not any(state["results"].values()):
+                self._finish("error", "Speed test gagal.", "; ".join(errors.values()))
+            elif errors:
+                self._finish("done", "Selesai (sebagian tahap gagal).", "; ".join(errors.values()))
+            else:
+                self._finish("done", "Selesai.")
+        except _SpeedTestCancelled:
+            self._finish("cancelled", "Dibatalkan.")
+        except _PhaseFailed as failure:
+            self._finish("error", "Speed test dihentikan.", str(failure))
+        except Exception as e:
+            self._finish("error", "Speed test gagal.", f"{type(e).__name__}: {e}")
+
+    # ---------------------------------------------------------------- latensi
+    def _phase_latency(self, t0):
+        self._update(phase="latency", message="Mengukur latensi…")
+        parts = self._parts()
+        base = parts.path.rstrip("/")
+        values = []
+        conn = None
+        try:
+            conn = self._connect(parts, timeout=4)
+            for index in range(self.LATENCY_SAMPLES + 1):
+                self._check_cancel()
+                started = time.perf_counter()
+                conn.request("GET", f"{base}/__down?bytes=0", headers=self._headers())
+                response = conn.getresponse()
+                response.read()
+                if response.status == 429:
+                    raise _PhaseFailed("Server membatasi permintaan (HTTP 429). Coba lagi sebentar lagi.", rate_limited=True)
+                if response.status >= 400:
+                    raise RuntimeError(f"HTTP {response.status}")
+                elapsed_ms = (time.perf_counter() - started) * 1000
+                if response.will_close:
+                    conn.close()
+                    conn = self._connect(parts, timeout=4)
+                if index == 0:
+                    continue   # sampel pertama (jabat tangan TLS) dibuang
+                values.append(elapsed_ms)
+                self._add_sample("latency", time.perf_counter() - t0, elapsed_ms, index / self.LATENCY_SAMPLES)
+                time.sleep(0.12)
+        except (_PhaseFailed, _SpeedTestCancelled):
+            raise
+        except Exception as e:
+            if not values:
+                raise _PhaseFailed(f"Gagal mengukur latensi: {type(e).__name__}: {e}")
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+        jitter = sum(abs(a - b) for a, b in zip(values[1:], values[:-1])) / (len(values) - 1) if len(values) > 1 else 0.0
+        self._set_result("latency", {
+            "avg": round(sum(values) / len(values), 1), "min": round(min(values), 1), "max": round(max(values), 1),
+            "jitter": round(jitter, 1), "count": len(values),
+        })
+
+    # ------------------------------------------------------- download / upload
+    def _download_worker(self, ctl, index):
+        parts = self._parts()
+        base = parts.path.rstrip("/")
+        time.sleep(0.15 * index)   # koneksi dibuka bergiliran agar tidak memicu pembatasan laju
+        failures = 0
+        while not ctl.stop.is_set():
+            ctl.wait_if_limited()
+            if ctl.stop.is_set():
+                break
+            conn = None
+            try:
+                conn = self._connect(parts)
+                conn.request("GET", f"{base}/__down?bytes={self.DOWNLOAD_BYTES}", headers=self._headers())
+                response = conn.getresponse()
+                if response.status == 429:
+                    ctl.note_rate_limit(self._retry_after(response))
+                    continue
+                if response.status >= 400:
+                    raise RuntimeError(f"HTTP {response.status}")
+                failures = 0
+                while not ctl.stop.is_set():
+                    chunk = response.read(131072)
+                    if not chunk:
+                        break
+                    ctl.add_bytes(len(chunk))
+            except Exception as e:
+                if ctl.stop.is_set():
+                    break
+                failures += 1
+                ctl.note_error(e)
+                if failures >= 8:
+                    break
+                ctl.stop.wait(0.4)
+            finally:
+                if conn is not None:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+
+    def _upload_worker(self, ctl, index):
+        parts = self._parts()
+        base = parts.path.rstrip("/")
+        chunk = self._upload_chunk
+        size = len(chunk)
+        time.sleep(0.15 * index)
+        failures = 0
+        while not ctl.stop.is_set():
+            ctl.wait_if_limited()
+            if ctl.stop.is_set():
+                break
+            conn = None
+            try:
+                conn = self._connect(parts)
+                conn.putrequest("POST", f"{base}/__up")
+                conn.putheader("Content-Type", "application/octet-stream")
+                conn.putheader("Content-Length", str(self.UPLOAD_CLAIM_BYTES))
+                conn.putheader("User-Agent", self.USER_AGENT)
+                conn.endheaders()
+                sock = conn.sock
+                sent = 0
+                answered = None
+                while sent < self.UPLOAD_CLAIM_BYTES and not ctl.stop.is_set():
+                    conn.send(chunk)   # memblokir sampai data diterima kernel: laju = kecepatan jalur sebenarnya
+                    ctl.add_bytes(size)
+                    sent += size
+                    if (sent // size) % 16 == 0 and self._readable(sock):
+                        answered = conn.getresponse()   # server menjawab sebelum selesai (mis. 429)
+                        break
+                if answered is None and not ctl.stop.is_set():
+                    answered = conn.getresponse()
+                if answered is not None:
+                    status = answered.status
+                    try:
+                        answered.read()
+                    except Exception:
+                        pass
+                    if status == 429:
+                        ctl.note_rate_limit(self._retry_after(answered))
+                        continue
+                    if status >= 400:
+                        raise RuntimeError(f"HTTP {status}")
+                failures = 0
+            except Exception as e:
+                if ctl.stop.is_set():
+                    break
+                failures += 1
+                ctl.note_error(e)
+                if failures >= 8:
+                    break
+                ctl.stop.wait(0.4)
+            finally:
+                if conn is not None:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+
+    def _phase_stream(self, kind, t0, worker):
+        label = "Download" if kind == "download" else "Upload"
+        self._update(phase=kind, message=f"{label} berlangsung…")
+        ctl = _PhaseControl()
+        threads = [threading.Thread(target=worker, args=(ctl, i), daemon=True) for i in range(self.CONNECTIONS)]
+        for thread in threads:
+            thread.start()
+        phase_start = time.perf_counter()
+        history = deque([(0.0, 0)])
+        window_speeds = []
+        warm = None
+        rel = 0.0
+        total = 0
+        try:
+            while True:
+                time.sleep(self.SAMPLE_INTERVAL)
+                self._check_cancel()
+                rel = time.perf_counter() - phase_start
+                total = ctl.total()
+                history.append((rel, total))
+                while len(history) > 2 and rel - history[0][0] > self.WINDOW_SECONDS:
+                    history.popleft()
+                t_old, b_old = history[0]
+                speed = ((total - b_old) * 8 / max(rel - t_old, 1e-6)) / 1e6
+                if warm is None and rel >= self.WARMUP_SECONDS:
+                    warm = (rel, total)
+                if warm is not None and rel - warm[0] >= self.WINDOW_SECONDS - 1e-9:
+                    window_speeds.append(speed)   # jendela penuh setelah masa pemanasan
+                self._add_sample(kind, time.perf_counter() - t0, speed, rel / self.PHASE_SECONDS)
+                if ctl.rate_limited >= 3 and total == 0 and rel > self.RATE_LIMIT_GRACE_SECONDS:
+                    raise _PhaseFailed(
+                        f"Server membatasi permintaan (HTTP 429) pada tahap {label.lower()}. Coba lagi sebentar lagi.",
+                        rate_limited=True,
+                    )
+                if total == 0 and rel > self.NO_DATA_SECONDS:
+                    reason = ctl.errors[0] if ctl.errors else "tidak ada respons dari server"
+                    raise _PhaseFailed(f"Tidak ada data yang mengalir pada tahap {label.lower()} ({reason}).")
+                if rel >= self.PHASE_SECONDS:
+                    break
+        finally:
+            ctl.stop.set()
+            for thread in threads:
+                thread.join(timeout=1.0)
+        if warm is not None and window_speeds and rel - warm[0] > 0:
+            average = (total - warm[1]) * 8 / (rel - warm[0]) / 1e6
+        else:
+            average = total * 8 / max(rel, 1e-6) / 1e6
+        pool = window_speeds or [average]
+        self._set_result(kind, {
+            "avg": round(average, 2), "max": round(max(pool), 2), "min": round(min(pool), 2),
+            "bytes": total, "seconds": round(rel, 2),
+        })
+
+
 class Api:
     def __init__(self):
         self._update_progress = {
@@ -2867,6 +3465,14 @@ class Api:
         self._internet_checked_at = 0.0
         self._internet_checking = False
         self._internet_probed = False
+        # Ping dashboard: sesi HTTPS dipertahankan (keep-alive) untuk cadangan bila ICMP tidak tersedia.
+        self._ping_session = requests.Session()
+        self._ping_warm = False
+        # Konfigurasi pengguna (alamat router) disimpan di berkas JSON.
+        self._config_file = _user_config_dir() / "config.json"
+        self._config = None
+        self._config_lock = threading.Lock()
+        self._speed_engine = SpeedTestEngine()
 
     def get_update_progress(self):
         with self._update_progress_lock:
@@ -2994,41 +3600,125 @@ class Api:
             self._internet_fail_streak = 0
             self._internet_checked_at = 0.0
 
+    # --- Konfigurasi alamat router (cukup IP; jalur /ubus tetap) --------------------------------------
+    @staticmethod
+    def _normalize_router_ip(value):
+        """Terima hanya IPv4. Mengembalikan (ip, pesan_error)."""
+        text = str(value or "").strip()
+        text = re.sub(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", "", text)   # buang http:// atau https://
+        text = text.split("/", 1)[0].strip()                      # buang path: /ubus sudah tetap
+        if not text:
+            return None, "Alamat IP tidak boleh kosong."
+        if ":" in text:
+            return None, "Cukup alamat IP saja, tanpa port (jalur /ubus sudah tetap)."
+        try:
+            ip = ipaddress.IPv4Address(text)
+        except ValueError:
+            return None, "Format IP tidak valid. Contoh: 192.168.0.1"
+        if ip.is_unspecified or ip.is_multicast or ip == ipaddress.IPv4Address("255.255.255.255"):
+            return None, "Alamat IP ini tidak bisa dipakai sebagai alamat router."
+        return str(ip), None
+
+    def _load_config(self):
+        with self._config_lock:
+            if self._config is None:
+                data = {}
+                try:
+                    with open(self._config_file, "r", encoding="utf-8") as handle:
+                        raw = json.load(handle)
+                    if isinstance(raw, dict):
+                        data = raw
+                except (OSError, ValueError):
+                    data = {}
+                ip, _ = self._normalize_router_ip(data.get("router_ip") or DEFAULT_ROUTER_IP)
+                self._config = {"router_ip": ip or DEFAULT_ROUTER_IP, "router_ip_confirmed": bool(data.get("router_ip_confirmed", False))}
+            return dict(self._config)
+
+    def _save_config(self, **changes):
+        """Simpan perubahan secara atomik. Mengembalikan pesan error atau None bila berhasil."""
+        current = self._load_config()
+        current.update(changes)
+        try:
+            path = Path(self._config_file)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temp = path.with_suffix(".tmp")
+            temp.write_text(json.dumps(current, indent=2), encoding="utf-8")
+            os.replace(temp, path)
+        except OSError as e:
+            return f"Tidak bisa menyimpan pengaturan: {type(e).__name__}: {e}"
+        with self._config_lock:
+            self._config = current
+        return None
+
+    def _router_ip(self):
+        return self._load_config()["router_ip"]
+
+    def get_router_config(self):
+        config = self._load_config()
+        return {"ip": config["router_ip"], "configured": config["router_ip_confirmed"], "default": DEFAULT_ROUTER_IP}
+
+    def set_router_config(self, ip):
+        normalized, error = self._normalize_router_ip(ip)
+        if error:
+            return {"success": False, "error": error}
+        error = self._save_config(router_ip=normalized, router_ip_confirmed=True)
+        if error:
+            return {"success": False, "error": error}
+        return {"success": True, "ip": normalized, "configured": True}
+
+    def test_router_connection(self, ip=None):
+        if ip:
+            target, error = self._normalize_router_ip(ip)
+            if error:
+                return {"success": False, "ip": None, "error": error}
+        else:
+            target = self._router_ip()
+        started = time.perf_counter()
+        try:
+            data = self._router_request(target, timeout=3)
+        except requests.exceptions.RequestException:
+            return {"success": False, "ip": target,
+                    "error": f"Router tidak bisa dihubungi di {target}. Periksa alamat IP dan koneksi ke router."}
+        except Exception as e:
+            return {"success": False, "ip": target, "error": f"{type(e).__name__}: {e}"}
+        elapsed = (time.perf_counter() - started) * 1000
+        if data:
+            return {"success": True, "ip": target, "message": f"Router terhubung ({target}, {elapsed:.0f} ms)."}
+        return {"success": False, "ip": target, "reachable": True,
+                "error": f"{target} dapat dihubungi, tetapi balasannya bukan dari router ZTE yang didukung."}
+
+    def _router_request(self, ip, timeout=3):
+        """Panggil API zte_nwinfo_api di router. Mengembalikan dict data (kosong bila balasan tidak dikenali)."""
+        url = f"http://{ip}/ubus/?t={int(time.time() * 1000)}"
+        headers = {
+            "Content-Type": "application/json",
+            "Referer": f"http://{ip}/index.html",
+            "Origin": f"http://{ip}",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+            "z-mode": "0",
+            "z-tag": "nwinfo_get_netinfo",
+            "X-Requested-With": "XMLHttpRequest",
+        }
+        payload = [{
+            "jsonrpc": "2.0", "method": "call",
+            "params": ["00000000000000000000000000000000", "zte_nwinfo_api", "nwinfo_get_netinfo", {}],
+            "id": 1,
+        }]
+        resp = requests.post(url, json=payload, headers=headers, timeout=timeout, verify=False)
+        data = {}
+        if resp.text.strip().startswith("[") or resp.text.strip().startswith("{"):
+            json_array = resp.json()
+            if isinstance(json_array, list) and len(json_array) > 0:
+                res = json_array[0].get("result")
+                if isinstance(res, list) and len(res) > 1 and isinstance(res[1], dict):
+                    data = res[1]
+        return data
+
     def get_router_data(self):
         data = {}
         internet_ok = False
         try:
-            url = f"http://192.168.0.1/ubus/?t={int(time.time() * 1000)}"
-            headers = {
-                "Content-Type": "application/json",
-                "Referer": "http://192.168.0.1/index.html",
-                "Origin": "http://192.168.0.1",
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
-                "z-mode": "0",
-                "z-tag": "nwinfo_get_netinfo",
-                "X-Requested-With": "XMLHttpRequest"
-            }
-            payload = [
-                {
-                    "jsonrpc": "2.0",
-                    "method": "call",
-                    "params": [
-                        "00000000000000000000000000000000",
-                        "zte_nwinfo_api",
-                        "nwinfo_get_netinfo",
-                        {}
-                    ],
-                    "id": 1
-                }
-            ]
-            resp = requests.post(url, json=payload, headers=headers, timeout=3, verify=False)
-            
-            if resp.text.strip().startswith("[") or resp.text.strip().startswith("{"):
-                json_array = resp.json()
-                if isinstance(json_array, list) and len(json_array) > 0:
-                    res = json_array[0].get("result")
-                    if isinstance(res, list) and len(res) > 1 and isinstance(res[1], dict):
-                        data = res[1]
+            data = self._router_request(self._router_ip())
         except Exception as e:
             print(f"[ERROR TOWER] {e}")
 
@@ -3108,18 +3798,55 @@ class Api:
         except Exception as e:
             return {"success": False, "output": str(e)}
 
-    def get_ping_latency(self):
-        """Measure HTTPS round-trip latency to Cloudflare (not ICMP ping)."""
+    _PING_TIME = re.compile(r"([=<])\s*(\d+(?:[.,]\d+)?)\s*ms", re.IGNORECASE)
+
+    def _icmp_ping_ms(self, host="1.1.1.1", timeout_s=2):
+        """Ping ICMP satu paket memakai perintah ping sistem. None bila gagal/tidak ada balasan."""
+        windows = platform.system().lower() == "windows"
+        command = ["ping", "-n", "1", "-w", str(timeout_s * 1000), host] if windows else ["ping", "-c", "1", "-W", str(timeout_s), host]
+        options = {"stdout": subprocess.PIPE, "stderr": subprocess.STDOUT, "text": True,
+                   "timeout": timeout_s + 2, "check": False, "shell": False}
+        if windows:
+            options["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        completed = subprocess.run(command, **options)
+        if completed.returncode != 0:
+            return None
+        found = self._PING_TIME.findall(completed.stdout or "")
+        if not found:
+            return None
+        sign, number = found[-1]
+        value = float(number.replace(",", "."))
+        if sign == "<":
+            value = min(value, 1.0) / 2 if value <= 1 else value   # "time<1ms"
+        return round(value, 1)
+
+    def _https_ping(self):
+        """Cadangan bila ICMP tidak tersedia: latensi HTTPS pada sesi keep-alive (tanpa jabat tangan TLS)."""
+        url = "https://www.cloudflare.com/cdn-cgi/trace"
         try:
+            if not self._ping_warm:
+                self._ping_session.get(url, timeout=(1.5, 2.0)).raise_for_status()   # membuka koneksi; tidak dihitung
+                self._ping_warm = True
             started = time.perf_counter()
-            response = requests.get(
-                f"https://www.cloudflare.com/cdn-cgi/trace?_={time.time_ns()}",
-                timeout=(1.5, 2.0)
-            )
-            response.raise_for_status()
-            return {"success": True, "value": round((time.perf_counter() - started) * 1000, 1)}
+            self._ping_session.get(url, timeout=(1.5, 2.0)).raise_for_status()
+            return {"success": True, "value": round((time.perf_counter() - started) * 1000, 1), "method": "https"}
         except Exception as e:
+            self._ping_warm = False
             return {"success": False, "error": f"{type(e).__name__}: {e}"}
+
+    def get_ping_latency(self):
+        """Latensi internet untuk dashboard: ICMP ke 1.1.1.1 (sama dengan Ping Tools dan aplikasi Android).
+
+        Sebelumnya memakai HTTPS ke Cloudflare dengan koneksi baru tiap kali (DNS + TCP + TLS), sehingga nilainya
+        beberapa kali lipat dari ping sebenarnya (mis. 267 ms vs 30 ms).
+        """
+        try:
+            value = self._icmp_ping_ms()
+        except Exception:
+            value = None
+        if value is not None:
+            return {"success": True, "value": value, "method": "icmp"}
+        return self._https_ping()
 
     @staticmethod
     def _release_version_key(tag):
@@ -3511,6 +4238,14 @@ class Api:
             stage_dir.mkdir(parents=True, exist_ok=True)
             temp_exe = stage_dir / (current_exe.stem + ".update.exe")
             temp_exe.write_bytes(payload)
+            signature_ok, signature_error = self._verify_update_signature(current_exe, temp_exe)
+            if not signature_ok:
+                try:
+                    temp_exe.unlink()
+                except OSError:
+                    pass
+                self._set_update_progress(active=False, status="Pembaruan dibatalkan.", error=signature_error)
+                return {"success": False, "error": signature_error}
             elevated = not self._can_replace_exe(current_exe)
             if elevated:
                 self._set_update_progress(status="Meminta izin administrator untuk memasang update…")
@@ -3530,6 +4265,38 @@ class Api:
         except Exception as e:
             self._set_update_progress(active=False, status="Pembaruan gagal.", error=f"{type(e).__name__}: {e}")
             return {"success": False, "error": f"Pembaruan gagal: {type(e).__name__}: {e}"}
+
+    @staticmethod
+    def _authenticode_thumbprint(path):
+        """Thumbprint (SHA-1) sertifikat penanda tangan Authenticode, atau None bila tidak bertanda tangan/tak terbaca."""
+        if platform.system().lower() != "windows":
+            return None
+        escaped = str(path).replace("'", "''")
+        script = (f"$s = Get-AuthenticodeSignature -LiteralPath '{escaped}'; "
+                  "if ($s.SignerCertificate) { $s.SignerCertificate.Thumbprint }")
+        try:
+            completed = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=25, check=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        except Exception:
+            return None
+        value = (completed.stdout or "").strip().upper()
+        return value if re.fullmatch(r"[0-9A-F]{40}", value) else None
+
+    def _verify_update_signature(self, current_exe, staged_exe):
+        """Seperti kunci tanda tangan APK: bila EXE terpasang bertanda tangan, update harus ditandatangani
+        sertifikat yang sama. EXE lama yang belum bertanda tangan tetap bisa diperbarui (masa transisi)."""
+        current = self._authenticode_thumbprint(current_exe)
+        if not current:
+            return True, ""
+        staged = self._authenticode_thumbprint(staged_exe)
+        if staged == current:
+            return True, ""
+        reason = "tidak bertanda tangan" if not staged else "ditandatangani sertifikat yang berbeda"
+        return False, ("Tanda tangan digital update tidak cocok (" + reason + "). "
+                       "Pembaruan dibatalkan demi keamanan dan aplikasi tidak diubah.")
 
     @staticmethod
     def _dir_is_writable(directory):
@@ -3621,84 +4388,16 @@ class Api:
         webbrowser.open(url)
         return {"success": True}
 
-    def run_speed_sample(self, mode):
-        """Measure one bounded sample against Cloudflare's public speed-test endpoints."""
-        endpoint = SPEED_TEST_ENDPOINT
-        if mode not in {"download", "upload", "latency"}:
-            return {"success": False, "error": "Mode speed test tidak valid."}
+    # --- Speed test bergaya Ookla (lihat SpeedTestEngine) -----------------------------------------
+    def start_speed_test(self):
+        return self._speed_engine.start()
 
-        try:
-            cache_bust = time.time_ns()
+    def get_speed_test_status(self):
+        return self._speed_engine.status()
 
-            if mode == "latency":
-                started = time.perf_counter()
-                response = requests.get(
-                    f"{endpoint}/__down?bytes=0&cacheBust={cache_bust}",
-                    headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
-                    timeout=(4, 5),
-                )
-                response.raise_for_status()
-                value = (time.perf_counter() - started) * 1000
-                return {"success": True, "value": round(value, 1), "unit": "ms"}
+    def cancel_speed_test(self):
+        return self._speed_engine.cancel()
 
-            if mode == "download":
-                # Avoid a 100 MB request that can stall on slow or filtered connections.
-                # Use a bounded 1.25-second measurement and retry a smaller payload if needed.
-                last_error = None
-                for byte_count in (25_000_000, 10_000_000):
-                    started = time.perf_counter()
-                    received = 0
-                    try:
-                        with requests.get(
-                            f"{endpoint}/__down?bytes={byte_count}&cacheBust={cache_bust}",
-                            headers={
-                                "Cache-Control": "no-cache",
-                                "Pragma": "no-cache",
-                                "Accept-Encoding": "identity",
-                                "User-Agent": "IRA-ZTE-Live-Signal-Charts/0.0.0-dev",
-                            },
-                            stream=True,
-                            timeout=(3, 3),
-                        ) as response:
-                            response.raise_for_status()
-                            for chunk in response.iter_content(chunk_size=64 * 1024):
-                                if chunk:
-                                    received += len(chunk)
-                                elapsed_now = time.perf_counter() - started
-                                if elapsed_now >= 1.25:
-                                    break
-                        elapsed = max(time.perf_counter() - started, 0.001)
-                        if received > 0:
-                            value = (received * 8 / elapsed) / 1_000_000
-                            return {"success": True, "value": round(value, 2), "unit": "Mbps", "bytes_received": received}
-                        last_error = "Server tidak mengirim data download."
-                    except requests.exceptions.RequestException as e:
-                        last_error = f"{type(e).__name__}: {e}"
-                raise RuntimeError(f"Download gagal dari Cloudflare Speed Test: {last_error or 'tidak ada data yang diterima'}")
-
-            # Measure upload throughput with a moderate payload; timeout prevents a stalled phase.
-            payload = b"0" * 512_000
-            started = time.perf_counter()
-            response = requests.post(
-                f"{endpoint}/__up?cacheBust={cache_bust}",
-                data=payload,
-                headers={
-                    "Content-Type": "application/octet-stream",
-                    "Cache-Control": "no-cache",
-                },
-                timeout=(4, 10),
-            )
-            response.raise_for_status()
-            elapsed = max(time.perf_counter() - started, 0.001)
-            value = (len(payload) * 8 / elapsed) / 1_000_000
-            return {"success": True, "value": round(value, 2), "unit": "Mbps"}
-
-        except requests.exceptions.Timeout:
-            return {"success": False, "error": "Server speed test timeout (koneksi lambat atau endpoint diblokir)."}
-        except requests.exceptions.RequestException as e:
-            return {"success": False, "error": f"Koneksi speed test gagal: {type(e).__name__}: {e}"}
-        except Exception as e:
-            return {"success": False, "error": f"{type(e).__name__}: {e}"}
 
 if __name__ == '__main__':
     api = Api()
