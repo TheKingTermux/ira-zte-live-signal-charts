@@ -397,21 +397,20 @@
                 <button onclick="toggleSettingsModal()" class="text-slate-400 hover:text-white text-xs font-bold px-2 py-1 rounded-lg bg-slate-800">✕</button>
             </div>
             
-            <div id="android-apk-updater" class="rounded-xl border border-slate-800 bg-slate-950/50 p-3 space-y-2">
-                <label class="text-[11px] font-semibold text-slate-300 block">Kanal Pembaruan APK</label>
-                <select id="apk-release-channel" onchange="saveUpdatePreferences(); runUpdateCheck(false)" class="w-full bg-slate-950 border border-slate-800 text-xs text-slate-200 p-2 rounded-xl">
-                    <option value="stable">Stable Release (direkomendasikan)</option>
-                    <option value="beta">Beta / Prerelease</option>
-                </select>
-                <p class="text-[10px] text-slate-500">Stable memakai release resmi; Beta mengizinkan prerelease. Hanya aset .apk yang akan dipilih.</p>
-                <label class="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer select-none">
-                    <input id="apk-auto-update-check" type="checkbox" checked onchange="saveUpdatePreferences()" class="accent-cyan-500">
-                    Periksa update otomatis saat aplikasi dibuka (tanpa unduh otomatis)
-                </label>
-                <button id="apk-check-btn" onclick="runUpdateCheck(true)" class="w-full bg-slate-800 text-white text-xs px-3 py-2 rounded-xl">Periksa Pembaruan APK</button>
-                <button onclick="resetUpdatePreferences()" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-semibold px-3 py-2 rounded-xl">↺ Reset update yang disembunyikan</button>
-                <div id="apk-update-status" class="text-[10px] text-slate-400"></div>
-                <div id="apk-release-notes" class="hidden"></div>
+            <div id="router-ip-setting" class="rounded-xl border border-slate-800 bg-slate-950/50 p-3 space-y-2">
+                <div>
+                    <label for="router-ip-input" class="text-[11px] font-semibold text-slate-300 block">Alamat IP Router</label>
+                    <p class="text-[10px] text-slate-500">Cukup alamat IP-nya saja (contoh 192.168.0.1). Jalur <span class="font-mono">/ubus</span> tetap otomatis.</p>
+                </div>
+                <div class="flex gap-2">
+                    <input id="router-ip-input" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="192.168.0.1" onkeydown="if (event.key === 'Enter') saveRouterIpSetting()" class="w-full bg-slate-950 border border-slate-800 text-xs text-slate-200 p-2 rounded-xl focus:outline-none focus:border-cyan-500 transition-all font-mono">
+                    <button onclick="animateButton(this); saveRouterIpSetting()" class="bg-cyan-600 hover:bg-cyan-500 text-white px-3 py-2 rounded-xl text-xs font-semibold transition-all active:scale-95">Simpan</button>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="animateButton(this); testRouterIpSetting()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 px-3 py-2 rounded-xl text-xs font-semibold transition-all active:scale-95">Uji koneksi</button>
+                    <button onclick="animateButton(this); resetRouterIpDefault()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 px-3 py-2 rounded-xl text-xs font-semibold transition-all active:scale-95">Default (192.168.0.1)</button>
+                </div>
+                <p id="router-ip-status" class="text-[10px] text-slate-500"></p>
             </div>
 
             <div class="grid grid-cols-2 gap-2">
@@ -488,7 +487,7 @@
 
     <!-- About Modal -->
     <div id="aboutModal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm opacity-0 pointer-events-none modal-transition">
-        <div id="aboutBox" class="bg-slate-900 border border-slate-800 p-5 rounded-2xl max-w-sm w-full mx-4 shadow-2xl text-slate-100 transform scale-95 transition-transform duration-200">
+        <div id="aboutBox" class="bg-slate-900 border border-slate-800 p-5 rounded-2xl max-w-sm w-full mx-4 max-h-[90vh] overflow-y-auto shadow-2xl text-slate-100 transform scale-95 transition-transform duration-200">
             <div class="flex justify-between items-center pb-2 border-b border-slate-800 mb-3">
                 <h3 class="text-sm font-bold text-cyan-400">ⓘ About IRA ZTE</h3>
                 <button onclick="toggleAboutModal()" class="text-slate-400 text-xs font-bold px-2 py-1 rounded-lg bg-slate-800">✕</button>
@@ -498,10 +497,49 @@
                 <p>Dashboard telemetry real-time untuk router ZTE MC8501 5G, termasuk grafik kualitas sinyal, status tower/internet, riwayat koneksi, dan ping latency.</p>
                 <p>Updater APK menggunakan GitHub Releases. Stable dan Beta hanya mengunduh aset APK yang cocok.</p>
                 <p class="text-[10px] text-slate-500">Versi terpasang: <span id="about-version">Android app</span></p>
+            <div id="android-apk-updater" class="rounded-xl border border-slate-800 bg-slate-950/50 p-3 space-y-2">
+                <div class="text-[11px] font-bold text-cyan-300">⬆️ Pembaruan Aplikasi</div>
+                <label class="text-[11px] font-semibold text-slate-300 block">Kanal Pembaruan APK</label>
+                <select id="apk-release-channel" onchange="saveUpdatePreferences(); runUpdateCheck(false)" class="w-full bg-slate-950 border border-slate-800 text-xs text-slate-200 p-2 rounded-xl">
+                    <option value="stable">Stable Release (direkomendasikan)</option>
+                    <option value="beta">Beta / Prerelease</option>
+                </select>
+                <p class="text-[10px] text-slate-500">Stable memakai release resmi; Beta mengizinkan prerelease. Hanya aset .apk yang akan dipilih.</p>
+                <label class="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer select-none">
+                    <input id="apk-auto-update-check" type="checkbox" checked onchange="saveUpdatePreferences()" class="accent-cyan-500">
+                    Periksa update otomatis saat aplikasi dibuka (tanpa unduh otomatis)
+                </label>
+                <button id="apk-check-btn" onclick="runUpdateCheck(true)" class="w-full bg-slate-800 text-white text-xs px-3 py-2 rounded-xl">Periksa Pembaruan APK</button>
+                <button onclick="resetUpdatePreferences()" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-semibold px-3 py-2 rounded-xl">↺ Reset update yang disembunyikan</button>
+                <div id="apk-update-status" class="text-[10px] text-slate-400"></div>
+                <div id="apk-release-notes" class="hidden"></div>
+            </div>
                 <a class="text-cyan-400 underline" href="https://github.com/TheKingTermux/ira-zte-live-signal-charts" target="_blank" onclick="return openExternalLink(this.href)">GitHub Repository</a>
                 <button onclick="exportDiagnosticLogs()" class="w-full bg-cyan-700 hover:bg-cyan-600 text-white text-xs font-bold px-3 py-2 rounded-xl">📄 Ekspor Log Debug</button>
                 <p id="export-status" class="text-[10px] text-slate-400 min-h-[14px] break-all"></p>
             </div>
+        </div>
+    </div>
+
+    <!-- Pengaturan awal: alamat IP router (muncul sekali, pertama kali aplikasi dibuka) -->
+    <div id="routerSetupModal" class="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/85 backdrop-blur-sm opacity-0 pointer-events-none modal-transition">
+        <div id="routerSetupBox" class="bg-slate-900 border border-cyan-500/40 p-5 rounded-2xl max-w-md w-full mx-4 max-h-[94vh] overflow-y-auto shadow-2xl shadow-cyan-500/10 text-slate-100 transform scale-95 transition-transform duration-200">
+            <div class="flex items-start gap-3 pb-3 border-b border-slate-800 mb-3">
+                <div class="text-3xl leading-none">🌐</div>
+                <div class="min-w-0 flex-1">
+                    <h3 class="text-sm font-bold text-cyan-300">Alamat IP Router</h3>
+                    <p class="text-[11px] text-slate-400">Pengaturan awal</p>
+                </div>
+            </div>
+            <p class="text-xs text-slate-300">Masukkan alamat IP router ZTE Anda. Cukup IP-nya saja, jalur <span class="font-mono text-cyan-300">/ubus</span> sudah tetap.</p>
+            <p class="text-[11px] text-slate-400 mt-1">Bisa dirubah di pengaturan.</p>
+            <input id="router-setup-input" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="192.168.0.1" value="192.168.0.1" onkeydown="if (event.key === 'Enter') saveRouterSetup()" class="w-full bg-slate-950 border border-slate-800 text-xs text-slate-200 p-2 rounded-xl focus:outline-none focus:border-cyan-500 transition-all font-mono mt-3">
+            <p id="router-setup-status" class="text-[10px] text-slate-500 mt-2 min-h-[14px]"></p>
+            <div class="flex flex-wrap gap-2 mt-3">
+                <button onclick="animateButton(this); testRouterSetup()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 px-3 py-2 rounded-xl text-xs font-semibold transition-all active:scale-95">Uji koneksi</button>
+                <button onclick="animateButton(this); saveRouterSetup()" class="bg-cyan-600 hover:bg-cyan-500 text-white px-3 py-2 rounded-xl text-xs font-semibold transition-all active:scale-95 flex-1">Simpan &amp; mulai</button>
+            </div>
+            <button onclick="useDefaultRouterIp()" class="mt-3 w-full text-[11px] text-slate-400 hover:text-cyan-300 underline underline-offset-2">Pakai default (192.168.0.1)</button>
         </div>
     </div>
 
@@ -1364,7 +1402,7 @@
 
         // Dipanggil MainActivity saat aplikasi kembali ke latar depan: segarkan data tanpa memuat ulang halaman.
         window.onAppResume = function() {
-            if (!splashFinished) return;
+            if (!splashFinished || !routerConfig.configured) return;
             try { fetchTelemetry(); } catch (error) { console.error('Gagal menyegarkan data:', error); }
         };
 
@@ -1385,16 +1423,25 @@
                 return;
             }
 
+            // Ping Tools: setiap balasan ditambahkan di bawah (urut waktu, seperti ping di desktop).
             pingToolSamples.push(value);
-            if (pingToolSamples.length > 30) pingToolSamples.shift();
-            document.getElementById('ping-output').textContent = '[' + now.toLocaleTimeString() + '] ' + host + ': ' + (value === null ? 'timeout / tidak terjangkau' : value + ' ms') + '\n' + document.getElementById('ping-output').textContent;
-            const good = pingToolSamples.filter(v => v !== null);
-            if (good.length) {
-                document.getElementById('ping-min').textContent = Math.min(...good) + ' ms';
-                document.getElementById('ping-avg').textContent = (good.reduce((a,b)=>a+b,0)/good.length).toFixed(1) + ' ms';
-                document.getElementById('ping-max').textContent = Math.max(...good) + ' ms';
-            }
+            const output = document.getElementById('ping-output');
+            output.textContent += '[' + now.toLocaleTimeString() + '] ' + host + ': ' + (value === null ? 'timeout / tidak terjangkau' : value + ' ms') + '\n';
+            output.scrollTop = output.scrollHeight;
+            updatePingToolStats();
         }
+
+        function updatePingToolStats() {
+            const good = pingToolSamples.filter(v => v !== null);
+            if (!good.length) return;
+            document.getElementById('ping-min').textContent = Math.min(...good) + ' ms';
+            document.getElementById('ping-avg').textContent = (good.reduce((a, b) => a + b, 0) / good.length).toFixed(1) + ' ms';
+            document.getElementById('ping-max').textContent = Math.max(...good) + ' ms';
+        }
+
+        const PING_TOOL_COUNT = 4;   // sama seperti ping di desktop: 4 paket per sesi
+        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
         async function runManualPing() {
             if (pingBusy) return;
             const host = document.getElementById('ping-host').value.trim();
@@ -1404,14 +1451,31 @@
             }
             pingBusy = true;
             document.getElementById('btn-ping').disabled = true;
-            document.getElementById('ping-output').textContent = 'Menjalankan ping ke ' + host + '...';
+            pingToolSamples = [];   // statistik dihitung per sesi ping
+            ['ping-min', 'ping-avg', 'ping-max'].forEach(id => { document.getElementById(id).textContent = '—'; });
+            const output = document.getElementById('ping-output');
+            output.textContent = 'Ping ' + host + ' sebanyak ' + PING_TOOL_COUNT + ' kali…\n';
+            let sent = 0;
             try {
-                const value = await bridgePing(host);
-                if (!document.getElementById('pingModal').classList.contains('pointer-events-none')) {
+                for (let attempt = 1; attempt <= PING_TOOL_COUNT; attempt++) {
+                    const value = await bridgePing(host);
+                    if (document.getElementById('pingModal').classList.contains('pointer-events-none')) break;   // dialog ditutup
+                    sent++;
                     recordPing(value < 0 ? null : Number(value), host, 'tools');
+                    if (attempt < PING_TOOL_COUNT) await sleep(1000);
+                }
+                if (sent > 0) {
+                    const good = pingToolSamples.filter(v => v !== null);
+                    const lost = Math.round(((sent - good.length) / sent) * 100);
+                    output.textContent += '— Terkirim ' + sent + ', diterima ' + good.length + ', hilang ' + lost + '%';
+                    if (good.length) {
+                        output.textContent += ' · min ' + Math.min(...good) + ' / rata-rata ' + (good.reduce((a, b) => a + b, 0) / good.length).toFixed(1) + ' / maks ' + Math.max(...good) + ' ms';
+                    }
+                    output.textContent += '\n';
+                    output.scrollTop = output.scrollHeight;
                 }
             } catch (e) {
-                document.getElementById('ping-output').textContent = 'Ping gagal: ' + e;
+                output.textContent += 'Ping gagal: ' + e + '\n';
             } finally {
                 pingBusy = false;
                 document.getElementById('btn-ping').disabled = false;
@@ -1510,7 +1574,6 @@
                 'Cek sisa masa aktif paket IRA.',
                 'Coba buka situs lain; jika bisa, kemungkinan hanya server uji yang bermasalah.',
                 'Restart router: cabut listrik 30 detik lalu nyalakan lagi.',
-                'Coba ganti DNS perangkat ke 8.8.8.8 atau 9.9.9.9.',
                 'Jika berlangsung lama, hubungi CS.'
             ]
         };
@@ -2382,13 +2445,174 @@
             document.getElementById('apk-auto-update-check').checked = safeStorage.getItem('auto_update_check') !== 'false';
         }
 
+        // ===== Alamat router (cukup IP; jalur /ubus tetap) =====
+        const ROUTER_DEFAULT_IP = '192.168.0.1';
+        let routerConfig = { ip: ROUTER_DEFAULT_IP, configured: true };
+        let routerSetupResolver = null;
+
+        function normalizeRouterIpInput(value) {
+            let text = String(value === null || value === undefined ? '' : value).trim();
+            text = text.replace(new RegExp('^[a-zA-Z][a-zA-Z0-9+.-]*://'), '');   // buang http:// atau https://
+            text = text.split('/')[0].trim();                                      // buang path: /ubus sudah tetap
+            if (!text) return { error: 'Alamat IP tidak boleh kosong.' };
+            if (text.indexOf(':') >= 0) return { error: 'Cukup alamat IP saja, tanpa port (jalur /ubus sudah tetap).' };
+            const parts = text.split('.');
+            const valid = parts.length === 4 && parts.every(part => new RegExp('^(0|[1-9][0-9]{0,2})$').test(part) && Number(part) <= 255);
+            if (!valid) return { error: 'Format IP tidak valid. Contoh: 192.168.0.1' };
+            const ip = parts.map(Number).join('.');
+            const first = Number(parts[0]);
+            if (ip === '0.0.0.0' || ip === '255.255.255.255' || (first >= 224 && first <= 239)) {
+                return { error: 'Alamat IP ini tidak bisa dipakai sebagai alamat router.' };
+            }
+            return { ip: ip };
+        }
+
+        function setRouterStatus(id, message, kind) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.innerText = message || '';
+            el.className = 'text-[10px] ' + (kind === 'ok' ? 'text-emerald-400' : (kind === 'error' ? 'text-red-400' : 'text-slate-500'));
+        }
+
+        async function loadRouterConfig() {
+            try {
+                const config = await platformGetRouterConfig();
+                if (config && config.ip) routerConfig = { ip: config.ip, configured: !!config.configured };
+            } catch (error) {
+                console.error('Gagal membaca konfigurasi router:', error);
+                routerConfig = { ip: ROUTER_DEFAULT_IP, configured: true };   // jangan memblokir aplikasi
+            }
+            const input = document.getElementById('router-ip-input');
+            if (input) input.value = routerConfig.ip;
+            return routerConfig;
+        }
+
+        async function testRouterIp(inputId, statusId) {
+            const normalized = normalizeRouterIpInput(document.getElementById(inputId).value);
+            if (normalized.error) { setRouterStatus(statusId, normalized.error, 'error'); return false; }
+            setRouterStatus(statusId, 'Menguji koneksi ke ' + normalized.ip + '…', 'info');
+            try {
+                const result = await platformTestRouter(normalized.ip);
+                if (result && result.success) {
+                    setRouterStatus(statusId, '✅ ' + (result.message || 'Router terhubung.'), 'ok');
+                    return true;
+                }
+                setRouterStatus(statusId, '⚠️ ' + ((result && result.error) || 'Router tidak merespons.'), 'error');
+            } catch (error) {
+                setRouterStatus(statusId, '⚠️ Gagal menguji koneksi: ' + (error && error.message ? error.message : error), 'error');
+            }
+            return false;
+        }
+
+        async function saveRouterIpFrom(inputId, statusId) {
+            const normalized = normalizeRouterIpInput(document.getElementById(inputId).value);
+            if (normalized.error) { setRouterStatus(statusId, normalized.error, 'error'); return false; }
+            try {
+                const result = await platformSetRouterIp(normalized.ip);
+                if (!result || !result.success) {
+                    setRouterStatus(statusId, (result && result.error) || 'Gagal menyimpan alamat router.', 'error');
+                    return false;
+                }
+                routerConfig = { ip: result.ip, configured: true };
+                const settingsInput = document.getElementById('router-ip-input');
+                if (settingsInput) settingsInput.value = result.ip;
+                setRouterStatus(statusId, '✅ Tersimpan: ' + result.ip, 'ok');
+                return true;
+            } catch (error) {
+                setRouterStatus(statusId, 'Gagal menyimpan: ' + (error && error.message ? error.message : error), 'error');
+                return false;
+            }
+        }
+
+        async function saveRouterIpSetting() {
+            if (await saveRouterIpFrom('router-ip-input', 'router-ip-status')) {
+                if (typeof fetchTelemetry === 'function') fetchTelemetry();   // langsung pakai alamat baru
+            }
+        }
+
+        function testRouterIpSetting() { return testRouterIp('router-ip-input', 'router-ip-status'); }
+
+        function resetRouterIpDefault() {
+            document.getElementById('router-ip-input').value = ROUTER_DEFAULT_IP;
+            return saveRouterIpSetting();
+        }
+
+        function setRouterSetupVisible(visible) {
+            const modal = document.getElementById('routerSetupModal');
+            const box = document.getElementById('routerSetupBox');
+            if (visible) {
+                modal.classList.remove('opacity-0', 'pointer-events-none');
+                box.classList.remove('scale-95');
+                box.classList.add('scale-100');
+            } else {
+                modal.classList.add('opacity-0', 'pointer-events-none');
+                box.classList.add('scale-95');
+                box.classList.remove('scale-100');
+            }
+        }
+
+        function testRouterSetup() { return testRouterIp('router-setup-input', 'router-setup-status'); }
+
+        async function saveRouterSetup() {
+            if (!(await saveRouterIpFrom('router-setup-input', 'router-setup-status'))) return;
+            setRouterSetupVisible(false);
+            if (routerSetupResolver) {
+                const resolve = routerSetupResolver;
+                routerSetupResolver = null;
+                resolve();
+            }
+        }
+
+        function useDefaultRouterIp() {
+            document.getElementById('router-setup-input').value = ROUTER_DEFAULT_IP;
+            return saveRouterSetup();
+        }
+
+        // Pertama kali aplikasi dibuka: tanyakan alamat router (dengan keterangan "bisa dirubah di pengaturan").
+        // Promise baru selesai setelah pengguna menyimpan, sehingga pembacaan data menunggu alamat yang benar.
+        async function ensureRouterConfigured() {
+            await loadRouterConfig();
+            if (routerConfig.configured) return;
+            document.getElementById('router-setup-input').value = routerConfig.ip;
+            setRouterStatus('router-setup-status', 'Default: ' + ROUTER_DEFAULT_IP, 'info');
+            setRouterSetupVisible(true);
+            return new Promise(resolve => { routerSetupResolver = resolve; });
+        }
+
+        function platformGetRouterConfig() { return Promise.resolve(JSON.parse(window.AndroidBridge.getRouterConfig())); }
+        function platformSetRouterIp(ip) { return Promise.resolve(JSON.parse(window.AndroidBridge.setRouterIp(ip))); }
+
+        let routerTestSeq = 0;
+        const pendingRouterTests = {};
+        window.onRouterTest = function(id, result) {
+            const pending = pendingRouterTests[id];
+            if (!pending) return;
+            delete pendingRouterTests[id];
+            clearTimeout(pending.timer);
+            pending.resolve(result);
+        };
+
+        // Uji koneksi berjalan di thread latar Kotlin; hasilnya dikirim lewat window.onRouterTest.
+        function platformTestRouter(ip) {
+            return new Promise((resolve, reject) => {
+                const bridge = window.AndroidBridge;
+                if (!bridge || typeof bridge.testRouterConnection !== 'function') { reject(new Error('Fitur uji koneksi belum tersedia di aplikasi ini.')); return; }
+                const id = ++routerTestSeq;
+                const timer = setTimeout(() => { delete pendingRouterTests[id]; reject(new Error('Uji koneksi tidak mendapat respons.')); }, 8000);
+                pendingRouterTests[id] = { resolve: resolve, timer: timer };
+                try {
+                    bridge.testRouterConnection(id, ip);
+                } catch (error) {
+                    clearTimeout(timer);
+                    delete pendingRouterTests[id];
+                    reject(error);
+                }
+            });
+        }
+
         window.addEventListener('DOMContentLoaded', function() {
             try { loadSettings(); } catch (error) { console.error('Gagal memuat pengaturan:', error); }
             // Telemetri dimuat setelah splash selesai (judul -> logo -> jeda -> dashboard).
-            whenSplashDone(() => {
-                fetchTelemetry();
-                pollTimer = setInterval(fetchTelemetry, currentIntervalTime);
-            });
             const pingFreqSelect = document.getElementById('setting-ping-freq');
             const savedPingFreq = safeStorage.getItem('router_ping_freq');
             if (savedPingFreq === null || savedPingFreq === 'auto') {
@@ -2410,7 +2634,13 @@
                     updateLivePingFrequency(false);
                 }
             }
-            whenSplashDone(() => { startLivePing(); });
+            // Telemetri & ping dimulai setelah splash selesai; pertama kali dibuka, tanya alamat router dulu.
+            whenSplashDone(async () => {
+                await ensureRouterConfigured();
+                fetchTelemetry();
+                pollTimer = setInterval(fetchTelemetry, currentIntervalTime);
+                startLivePing();
+            });
             scheduleAutoUpdateChecks();
         });
     </script>
