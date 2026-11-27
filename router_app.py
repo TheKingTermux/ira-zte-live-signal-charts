@@ -9,6 +9,10 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+import functools
+import inspect
+import traceback
+from datetime import datetime, timezone
 import copy
 import http.client
 import ipaddress
@@ -1466,13 +1470,19 @@ HTML_CONTENT = """
                         animateNumber(meta.min, result.min, meta.decimals, 600);
                         animateNumber(meta.avg, result.avg, meta.decimals, 600);
                         animateNumber(meta.max, result.max, meta.decimals, 600);
-                        document.getElementById(meta.status).innerText = 'Selesai · rata-rata' + (kind === 'latency' && result.jitter !== undefined ? ' · jitter ' + result.jitter + ' ms' : '');
+                        document.getElementById(meta.status).innerText = 'Selesai · rata-rata' + (kind === 'latency' && result.jitter !== undefined ? ' · jitter ' + result.jitter + ' ms' : '') + (result.server ? ' · ' + result.server : '');
                     }
                 } else if (status.phase === kind && status.current && status.current[kind] !== null && status.current[kind] !== undefined) {
                     document.getElementById(meta.value).innerText = Number(status.current[kind]).toFixed(meta.decimals);
                     document.getElementById(meta.status).innerText = 'Mengukur…';
                 }
             });
+        }
+
+        // Setiap error speed test (status HTTP, header, cuplikan respons server) tersimpan di catatan error dan ikut
+        // diekspor; pengguna diarahkan ke sana agar laporan masalahnya lengkap.
+        function withDebugHint(text) {
+            return /debug JSON/.test(text) ? text : text + ' Detail teknis ikut tersimpan di file debug JSON (Pengaturan > Ekspor Log).';
         }
 
         function finishSpeedTest(status) {
@@ -1484,13 +1494,13 @@ HTML_CONTENT = """
             });
             if (status.phase === 'done') {
                 setSpeedStateText(status.error ? 'Selesai sebagian' : 'Selesai', status.error ? 'info' : 'ok');
-                setSpeedProgress(100, status.error ? 'Selesai, tetapi: ' + status.error : 'Selesai. Hasil setiap tahap ditampilkan begitu tahap itu rampung.');
+                setSpeedProgress(100, status.error ? withDebugHint('Selesai, tetapi: ' + status.error) : 'Selesai. Hasil setiap tahap ditampilkan begitu tahap itu rampung.');
             } else if (status.phase === 'cancelled') {
                 setSpeedStateText('Dibatalkan', 'info');
                 setSpeedProgress((status.progress || 0) * 100, 'Speed test dibatalkan.');
             } else {
                 setSpeedStateText('Gagal', 'error');
-                setSpeedProgress(100, 'Pengujian dihentikan: ' + (status.error || 'terjadi kesalahan'));
+                setSpeedProgress(100, withDebugHint('Pengujian dihentikan: ' + (status.error || 'terjadi kesalahan')));
             }
         }
 
@@ -1532,7 +1542,7 @@ HTML_CONTENT = """
                 }
             } catch (error) {
                 setSpeedStateText('Gagal', 'error');
-                setSpeedProgress(100, 'Pengujian dihentikan: ' + (error.message || error));
+                setSpeedProgress(100, withDebugHint('Pengujian dihentikan: ' + (error.message || error)));
             } finally {
                 speedTestRunning = false;
                 btn.disabled = false;
@@ -2973,6 +2983,20 @@ HTML_CONTENT = """
             diagnosticErrors.push({ time: new Date().toISOString(), type: 'unhandledrejection', message: String(event.reason || 'Unknown rejection') });
             if (diagnosticErrors.length > 200) diagnosticErrors.shift();
         });
+        // console.error juga ikut tercatat: banyak kegagalan API/jaringan hanya dilaporkan lewat console.error.
+        const nativeConsoleError = console.error.bind(console);
+        console.error = function(...args) {
+            try {
+                const text = args.map(item => {
+                    if (item && item.stack) return String(item.stack);
+                    if (item !== null && typeof item === 'object') { try { return JSON.stringify(item); } catch (error) { return String(item); } }
+                    return String(item);
+                }).join(' ');
+                diagnosticErrors.push({ time: new Date().toISOString(), type: 'console.error', message: text.slice(0, 800) });
+                if (diagnosticErrors.length > 200) diagnosticErrors.shift();
+            } catch (error) { /* pencatatan tidak boleh mengganggu aplikasi */ }
+            nativeConsoleError(...args);
+        };
         function setExportStatus(message, isError = false) {
             // Banner tertutup oleh jendela Pengaturan, jadi hasil juga ditulis di dekat tombol.
             const el = document.getElementById('export-status');
@@ -3102,36 +3126,203 @@ def _user_config_dir():
     return Path(base) / "IRA_ZTE_Live_Signal_Charts"
 
 
+class ErrorLog:
+    """Catatan error aplikasi (ring buffer) yang ikut diekspor ke debug JSON.
+
+    Tiap entri memuat waktu, sumber, operasi, pesan, dan parameter lengkap saat error terjadi (mis. URL, status HTTP,
+    header permintaan/respons, cuplikan isi respons). Error yang sama berulang digabung (hitungan `count`) agar
+    catatan tetap ringkas tetapi detail kejadian pertamanya terjaga. Nama berisi authorization/cookie/token/
+    password/secret/api-key disamarkan.
+    """
+
+    MAX_ENTRIES = 200
+    _SECRET = re.compile(r"authorization|cookie|token|password|secret|api[-_]?key", re.IGNORECASE)
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._entries = []
+        self._index = {}
+        self._sequence = 0
+
+    @classmethod
+    def _clean(cls, value, depth=0):
+        if depth > 4:
+            return "…"
+        if value is None or isinstance(value, (bool, int, float)):
+            return value
+        if isinstance(value, bytes):
+            value = value.decode("utf-8", "replace")
+        if isinstance(value, str):
+            return value if len(value) <= 600 else value[:600] + "…"
+        if isinstance(value, dict):
+            cleaned = {}
+            for key, item in list(value.items())[:60]:
+                name = str(key)
+                cleaned[name] = "[disembunyikan]" if cls._SECRET.search(name) else cls._clean(item, depth + 1)
+            return cleaned
+        if isinstance(value, (list, tuple, set)):
+            return [cls._clean(item, depth + 1) for item in list(value)[:50]]
+        return str(value)[:600]
+
+    def add(self, source, operation, message, dedupe_key=None, level="error", **details):
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with self._lock:
+            if dedupe_key is not None:
+                existing = self._index.get(dedupe_key)
+                if existing is not None:
+                    existing["count"] += 1
+                    existing["last_seen"] = now
+                    return existing["id"]
+            self._sequence += 1
+            entry = {
+                "id": self._sequence, "time": now, "last_seen": now, "count": 1, "level": level,
+                "source": str(source), "operation": str(operation), "message": self._clean(str(message)),
+                "details": self._clean(details),
+            }
+            self._entries.append(entry)
+            if dedupe_key is not None:
+                self._index[dedupe_key] = entry
+            while len(self._entries) > self.MAX_ENTRIES:
+                dropped = self._entries.pop(0)
+                for key in [k for k, v in self._index.items() if v is dropped]:
+                    del self._index[key]
+            return entry["id"]
+
+    def snapshot(self):
+        with self._lock:
+            return copy.deepcopy(self._entries)
+
+    def clear(self):
+        with self._lock:
+            self._entries.clear()
+            self._index.clear()
+
+    def summary(self):
+        entries = self.snapshot()
+        by_source, by_status = {}, {}
+        for entry in entries:
+            by_source[entry["source"]] = by_source.get(entry["source"], 0) + entry["count"]
+            status = (entry.get("details") or {}).get("status")
+            if status is not None:
+                key = f'{entry["source"]}:{status}'
+                by_status[key] = by_status.get(key, 0) + entry["count"]
+        return {
+            "distinct": len(entries), "occurrences": sum(e["count"] for e in entries),
+            "by_source": by_source, "by_status": by_status,
+        }
+
+
+def _record_failures(source, skip_params=()):
+    """Dekorator metode Api: catat ke ErrorLog bila metode melempar error atau mengembalikan success=False."""
+
+    def decorate(func):
+        signature = inspect.signature(func)
+
+        @functools.wraps(func)
+        def wrapper(self, *args, **kwargs):
+            def params():
+                try:
+                    bound = signature.bind(self, *args, **kwargs)
+                    bound.apply_defaults()
+                    return {k: v for k, v in list(bound.arguments.items())[1:] if k not in skip_params}
+                except TypeError:
+                    return {}
+
+            try:
+                result = func(self, *args, **kwargs)
+            except Exception as e:
+                self._errors.add(source, func.__name__, f"{type(e).__name__}: {e}",
+                                 dedupe_key=(source, func.__name__, type(e).__name__, str(e)[:100]),
+                                 params=params(), traceback=traceback.format_exc()[-1500:])
+                raise
+            if isinstance(result, dict) and result.get("success") is False and not result.get("cancelled"):
+                message = str(result.get("error") or result.get("message") or "gagal")
+                self._errors.add(source, func.__name__, message, dedupe_key=(source, func.__name__, message[:120]),
+                                 params=params(), result={k: v for k, v in result.items() if k != "success"})
+            return result
+
+        wrapper.__signature__ = signature   # pywebview membaca nama parameter lewat signature
+        return wrapper
+
+    return decorate
+
+
+BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 YaBrowser/26.11.0.2030 Yowser/2.5 Safari/537.36"
+)
+
+
 class _SpeedTestCancelled(Exception):
     """Pengguna membatalkan speed test."""
 
 
 class _PhaseFailed(Exception):
-    """Satu tahap (latensi/download/upload) gagal; rate_limited=True bila server membalas HTTP 429."""
+    """Satu tahap (latensi/download/upload) gagal; rate_limited=True bila semua penolakan berupa HTTP 429."""
 
-    def __init__(self, message, rate_limited=False):
+    def __init__(self, message, rate_limited=False, details=None):
         super().__init__(message)
         self.rate_limited = rate_limited
+        self.details = details or {}
+
+
+class _TargetRejected(Exception):
+    """Sebuah target (server + profil) menolak atau gagal; tahap boleh mencoba target berikutnya."""
+
+    def __init__(self, summary, status=None):
+        super().__init__(summary)
+        self.summary = summary
+        self.status = status
 
 
 class _PhaseControl:
-    """Penghitung byte bersama + sinyal berhenti untuk koneksi-koneksi paralel satu tahap."""
+    """Penghitung byte bersama, sinyal berhenti, dan 'tangga' target untuk koneksi-koneksi paralel satu tahap."""
 
-    def __init__(self):
+    def __init__(self, targets):
         self.stop = threading.Event()
         self.lock = threading.Lock()
+        self.targets = targets
         self.bytes = 0
+        self.bytes_by_target = {}
         self.errors = []
+        self.attempts = []
         self.rate_limited = 0
         self.resume_at = 0.0
+        self.target_index = 0
+        self.changed_at = time.perf_counter()
 
-    def add_bytes(self, amount):
+    def add_bytes(self, amount, target_index=0):
         with self.lock:
             self.bytes += amount
+            self.bytes_by_target[target_index] = self.bytes_by_target.get(target_index, 0) + amount
 
     def total(self):
         with self.lock:
             return self.bytes
+
+    def current(self):
+        with self.lock:
+            index = self.target_index
+            return index, (self.targets[index] if index < len(self.targets) else None)
+
+    def advance(self, from_index, summary):
+        """Pindah ke target berikutnya (hanya sekali per target walau banyak koneksi melapor bersamaan)."""
+        with self.lock:
+            if self.target_index != from_index:
+                return False
+            self.target_index += 1
+            self.attempts.append(summary)
+            self.rate_limited = 0
+            self.resume_at = 0.0
+            self.changed_at = time.perf_counter()
+            return True
+
+    def has_next(self):
+        with self.lock:
+            return self.target_index + 1 < len(self.targets)
+
+    def exhausted(self):
+        with self.lock:
+            return self.target_index >= len(self.targets)
 
     def note_error(self, error):
         with self.lock:
@@ -3147,6 +3338,13 @@ class _PhaseControl:
         if delay > 0:
             self.stop.wait(min(delay, 10.0))
 
+    def used_label(self):
+        with self.lock:
+            if not self.bytes_by_target:
+                return None
+            best = max(self.bytes_by_target, key=self.bytes_by_target.get)
+            return self.targets[best]["label"] if best < len(self.targets) else None
+
 
 class SpeedTestEngine:
     """Speed test bergaya Ookla: koneksi paralel yang mengalir terus selama durasi tertentu (tanpa batch).
@@ -3155,12 +3353,13 @@ class SpeedTestEngine:
     kecepatan dihitung dari jumlah byte yang benar-benar lewat (jendela geser 1 detik) dan hasil akhir dihitung
     setelah masa pemanasan TCP. Hasil tiap tahap tersedia segera setelah tahap itu selesai.
 
-    Dibanding versi lama (satu permintaan HTTPS baru per sampel): permintaan ke server jauh lebih sedikit
-    (tidak lagi memicu HTTP 429), tidak terpengaruh jabat tangan TLS tiap sampel, dan upload dihitung dari
-    byte yang terkirim sehingga sesuai kecepatan jalur sebenarnya.
+    Penolakan server (mis. HTTP 403 dari pemeriksaan bot Cloudflare) ditangani dengan "tangga" target: profil header
+    mirip browser -> profil polos (ukuran lebih kecil) -> server cadangan (download/latensi). Setiap penolakan dan
+    error dicatat lengkap (URL, status, header, cuplikan isi respons) di ErrorLog untuk diekspor ke debug JSON.
     """
 
-    DOWNLOAD_BYTES = 100_000_000
+    DOWNLOAD_BYTES = 100_000_000   # ukuran permintaan profil "browser"
+    PLAIN_DOWNLOAD_BYTES = 25_000_000
     UPLOAD_CLAIM_BYTES = 50_000_000
     CONNECTIONS = 4
     PHASE_SECONDS = 12.0
@@ -3169,14 +3368,19 @@ class SpeedTestEngine:
     WINDOW_SECONDS = 1.0
     LATENCY_SAMPLES = 10
     CHUNK_SIZE = 64 * 1024
-    NO_DATA_SECONDS = 5.0           # tanpa satu byte pun selama ini -> tahap dinyatakan gagal
-    RATE_LIMIT_GRACE_SECONDS = 3.0  # HTTP 429 berulang tanpa data selama ini -> tahap dihentikan
-    USER_AGENT = "IRA-ZTE-Live-Signal-Charts"
+    NO_DATA_SECONDS = 5.0           # tanpa satu byte pun selama ini pada satu target -> pindah/ gagal
+    RATE_LIMIT_GRACE_SECONDS = 3.0  # HTTP 429 berulang tanpa data selama ini pada satu target -> pindah/ gagal
+    # Server cadangan (download & latensi) di Singapura bila Cloudflare menolak; upload tetap ke endpoint utama.
+    FALLBACK_DOWNLOADS = (
+        "http://speedtest.singapore.linode.com/100MB-singapore.bin",
+        "https://sgp-ping.vultr.com/vultr.com.100MB.bin",
+    )
     # Bobot progres keseluruhan per tahap: (awal, lebar)
     PHASE_SPAN = {"latency": (0.0, 0.1), "download": (0.1, 0.45), "upload": (0.55, 0.45)}
 
-    def __init__(self, endpoint_provider=None):
+    def __init__(self, endpoint_provider=None, error_log=None):
         self._endpoint_provider = endpoint_provider or (lambda: SPEED_TEST_ENDPOINT)
+        self._errors = error_log if error_log is not None else ErrorLog()
         self._lock = threading.Lock()
         self._thread = None
         self._cancel = threading.Event()
@@ -3191,6 +3395,7 @@ class SpeedTestEngine:
         return {
             "run_id": run_id, "running": running, "phase": "idle", "message": "", "error": None,
             "elapsed": 0.0, "progress": 0.0, "server": "",
+            "servers": {"latency": None, "download": None, "upload": None},
             "current": {"latency": None, "download": None, "upload": None},
             "samples": {"latency": [], "download": [], "upload": []},
             "results": {"latency": None, "download": None, "upload": None},
@@ -3201,9 +3406,22 @@ class SpeedTestEngine:
         with self._lock:
             return copy.deepcopy(self._state)
 
+    def diagnostic_snapshot(self):
+        """Ringkasan status terakhir untuk debug JSON (tanpa deret sampel yang panjang)."""
+        state = self.status()
+        return {
+            "phase": state["phase"], "running": state["running"], "message": state["message"], "error": state["error"],
+            "servers": state["servers"], "results": state["results"], "phase_errors": state["phase_errors"],
+            "sample_counts": {k: len(v) for k, v in state["samples"].items()}, "elapsed": state["elapsed"],
+        }
+
     def _update(self, **fields):
         with self._lock:
             self._state.update(fields)
+
+    def _set_server(self, kind, label):
+        with self._lock:
+            self._state["servers"][kind] = label
 
     def _add_sample(self, kind, t, value, phase_fraction):
         start, span = self.PHASE_SPAN[kind]
@@ -3255,9 +3473,52 @@ class SpeedTestEngine:
         if self._cancel.is_set():
             raise _SpeedTestCancelled()
 
-    # ------------------------------------------------------------- koneksi
+    # ------------------------------------------------------------- target & permintaan
     def _parts(self):
         return urlsplit(self._endpoint_provider())
+
+    def _cloudflare_targets(self):
+        label = self._parts().hostname or "server"
+        return [
+            {"kind": "cloudflare", "profile": "browser", "label": label, "bytes": self.DOWNLOAD_BYTES},
+            {"kind": "cloudflare", "profile": "plain", "label": label, "bytes": self.PLAIN_DOWNLOAD_BYTES},
+        ]
+
+    def _file_targets(self):
+        targets = []
+        for url in self.FALLBACK_DOWNLOADS:
+            parts = urlsplit(url)
+            targets.append({"kind": "file", "profile": "plain", "label": parts.hostname or url, "url": url})
+        return targets
+
+    def _resolve(self, target, operation):
+        """Mengembalikan (urlsplit, path permintaan) untuk target dan operasi (latency/download/upload)."""
+        if target["kind"] == "file":
+            parts = urlsplit(target["url"])
+            path = (parts.path or "/") + (("?" + parts.query) if parts.query else "")
+            return parts, path
+        parts = self._parts()
+        base = parts.path.rstrip("/")
+        if operation == "download":
+            return parts, f"{base}/__down?bytes={target['bytes']}"
+        if operation == "latency":
+            return parts, f"{base}/__down?bytes=0"
+        return parts, f"{base}/__up"
+
+    @staticmethod
+    def _request_headers(target, parts):
+        if target["profile"] == "browser":
+            origin = f"{parts.scheme}://{parts.netloc}"
+            return {
+                "User-Agent": BROWSER_USER_AGENT, "Accept": "*/*", "Accept-Language": "en-US,en;q=0.9",
+                "Origin": origin, "Referer": origin + "/", "Sec-Fetch-Dest": "empty", "Sec-Fetch-Mode": "cors",
+                "Sec-Fetch-Site": "same-origin", "Cache-Control": "no-cache",
+            }
+        return {"User-Agent": "curl/8.5.0", "Accept": "*/*"}
+
+    @staticmethod
+    def _describe(target):
+        return f"{target['label']} ({target['profile']})"
 
     def _connect(self, parts, timeout=8):
         if parts.scheme == "https":
@@ -3265,9 +3526,6 @@ class SpeedTestEngine:
                 self._ssl_context = ssl.create_default_context()
             return http.client.HTTPSConnection(parts.hostname, parts.port or 443, timeout=timeout, context=self._ssl_context)
         return http.client.HTTPConnection(parts.hostname, parts.port or 80, timeout=timeout)
-
-    def _headers(self):
-        return {"User-Agent": self.USER_AGENT, "Accept-Encoding": "identity", "Cache-Control": "no-cache"}
 
     @staticmethod
     def _retry_after(response):
@@ -3286,6 +3544,33 @@ class SpeedTestEngine:
         except (OSError, ValueError):
             return False
 
+    # ------------------------------------------------------------- pencatatan error
+    def _record_http(self, kind, worker, target, method, parts, path, headers, response):
+        """Catat penolakan HTTP lengkap (parameter permintaan, header respons, cuplikan isi). Mengembalikan ringkasan."""
+        try:
+            snippet = response.read(512).decode("utf-8", "replace")
+        except Exception:
+            snippet = ""
+        status = response.status
+        self._errors.add(
+            "speed_test", kind, f"HTTP {status} {response.reason} dari {target['label']}",
+            dedupe_key=("speed", kind, target["label"], target["profile"], status),
+            phase=kind, server=target["label"], profile=target["profile"], target_kind=target["kind"], method=method,
+            url=f"{parts.scheme}://{parts.netloc}{path}", status=status, reason=response.reason,
+            request_headers=headers, response_headers={k.lower(): v for k, v in response.getheaders()},
+            body_snippet=snippet, connection=worker,
+        )
+        return f"{self._describe(target)} HTTP {status}"
+
+    def _record_exception(self, kind, worker, target, parts, path, error):
+        self._errors.add(
+            "speed_test", kind, f"{type(error).__name__}: {error}",
+            dedupe_key=("speed", kind, target["label"], target["profile"], type(error).__name__, str(error)[:80]),
+            phase=kind, server=target["label"], profile=target["profile"], target_kind=target["kind"],
+            url=f"{parts.scheme}://{parts.netloc}{path}" if parts is not None else None,
+            exception=type(error).__name__, error=str(error), connection=worker,
+        )
+
     # ------------------------------------------------------------- orkestrasi
     def _run(self, run_id):
         t0 = time.perf_counter()
@@ -3293,8 +3578,8 @@ class SpeedTestEngine:
             self._update(server=self._parts().hostname or "")
             phases = (
                 ("latency", lambda: self._phase_latency(t0)),
-                ("download", lambda: self._phase_stream("download", t0, self._download_worker)),
-                ("upload", lambda: self._phase_stream("upload", t0, self._upload_worker)),
+                ("download", lambda: self._phase_stream("download", t0, self._download_worker, self._cloudflare_targets() + self._file_targets())),
+                ("upload", lambda: self._phase_stream("upload", t0, self._upload_worker, self._cloudflare_targets())),
             )
             for kind, runner in phases:
                 self._check_cancel()
@@ -3302,6 +3587,9 @@ class SpeedTestEngine:
                     runner()
                 except _PhaseFailed as failure:
                     self._record_phase_error(kind, str(failure))
+                    self._errors.add("speed_test", f"{kind}_failed", str(failure),
+                                     dedupe_key=("speed_failed", kind, str(failure)[:160]), phase=kind,
+                                     rate_limited=failure.rate_limited, **failure.details)
                     if failure.rate_limited:
                         raise
             state = self.status()
@@ -3317,13 +3605,37 @@ class SpeedTestEngine:
         except _PhaseFailed as failure:
             self._finish("error", "Speed test dihentikan.", str(failure))
         except Exception as e:
+            self._errors.add("speed_test", "run", f"{type(e).__name__}: {e}",
+                             dedupe_key=("speed_run", type(e).__name__, str(e)[:100]), traceback=traceback.format_exc()[-1500:])
             self._finish("error", "Speed test gagal.", f"{type(e).__name__}: {e}")
 
     # ---------------------------------------------------------------- latensi
     def _phase_latency(self, t0):
         self._update(phase="latency", message="Mengukur latensi…")
-        parts = self._parts()
-        base = parts.path.rstrip("/")
+        failures = []
+        for target in self._cloudflare_targets() + self._file_targets():
+            self._check_cancel()
+            try:
+                values = self._measure_latency(target, t0)
+            except _TargetRejected as rejected:
+                failures.append((rejected.summary, rejected.status))
+                continue
+            jitter = sum(abs(a - b) for a, b in zip(values[1:], values[:-1])) / (len(values) - 1) if len(values) > 1 else 0.0
+            self._set_server("latency", target["label"])
+            self._set_result("latency", {
+                "avg": round(sum(values) / len(values), 1), "min": round(min(values), 1), "max": round(max(values), 1),
+                "jitter": round(jitter, 1), "count": len(values), "server": target["label"],
+            })
+            return
+        rate_limited = bool(failures) and all(status == 429 for _, status in failures)
+        summaries = [summary for summary, _ in failures]
+        raise _PhaseFailed("Gagal mengukur latensi: " + "; ".join(summaries) + ". Detail teknis ikut tersimpan di debug JSON.",
+                           rate_limited=rate_limited, details={"attempts": summaries})
+
+    def _measure_latency(self, target, t0):
+        parts, path = self._resolve(target, "latency")
+        method = "HEAD" if target["kind"] == "file" else "GET"
+        headers = self._request_headers(target, parts)
         values = []
         conn = None
         try:
@@ -3331,13 +3643,12 @@ class SpeedTestEngine:
             for index in range(self.LATENCY_SAMPLES + 1):
                 self._check_cancel()
                 started = time.perf_counter()
-                conn.request("GET", f"{base}/__down?bytes=0", headers=self._headers())
+                conn.request(method, path, headers=headers)
                 response = conn.getresponse()
-                response.read()
-                if response.status == 429:
-                    raise _PhaseFailed("Server membatasi permintaan (HTTP 429). Coba lagi sebentar lagi.", rate_limited=True)
                 if response.status >= 400:
-                    raise RuntimeError(f"HTTP {response.status}")
+                    summary = self._record_http("latency", 0, target, method, parts, path, headers, response)
+                    raise _TargetRejected(summary, response.status)
+                response.read()
                 elapsed_ms = (time.perf_counter() - started) * 1000
                 if response.will_close:
                     conn.close()
@@ -3347,57 +3658,64 @@ class SpeedTestEngine:
                 values.append(elapsed_ms)
                 self._add_sample("latency", time.perf_counter() - t0, elapsed_ms, index / self.LATENCY_SAMPLES)
                 time.sleep(0.12)
-        except (_PhaseFailed, _SpeedTestCancelled):
+        except (_TargetRejected, _SpeedTestCancelled):
             raise
         except Exception as e:
+            self._record_exception("latency", 0, target, parts, path, e)
             if not values:
-                raise _PhaseFailed(f"Gagal mengukur latensi: {type(e).__name__}: {e}")
+                raise _TargetRejected(f"{self._describe(target)} {type(e).__name__}: {e}")
         finally:
             if conn is not None:
                 try:
                     conn.close()
                 except Exception:
                     pass
-        jitter = sum(abs(a - b) for a, b in zip(values[1:], values[:-1])) / (len(values) - 1) if len(values) > 1 else 0.0
-        self._set_result("latency", {
-            "avg": round(sum(values) / len(values), 1), "min": round(min(values), 1), "max": round(max(values), 1),
-            "jitter": round(jitter, 1), "count": len(values),
-        })
+        return values
 
     # ------------------------------------------------------- download / upload
     def _download_worker(self, ctl, index):
-        parts = self._parts()
-        base = parts.path.rstrip("/")
         time.sleep(0.15 * index)   # koneksi dibuka bergiliran agar tidak memicu pembatasan laju
         failures = 0
         while not ctl.stop.is_set():
             ctl.wait_if_limited()
             if ctl.stop.is_set():
                 break
+            target_index, target = ctl.current()
+            if target is None:
+                break
             conn = None
+            parts, path = None, ""
             try:
+                parts, path = self._resolve(target, "download")
+                headers = self._request_headers(target, parts)
                 conn = self._connect(parts)
-                conn.request("GET", f"{base}/__down?bytes={self.DOWNLOAD_BYTES}", headers=self._headers())
+                conn.request("GET", path, headers=headers)
                 response = conn.getresponse()
                 if response.status == 429:
+                    self._record_http("download", index, target, "GET", parts, path, headers, response)
                     ctl.note_rate_limit(self._retry_after(response))
                     continue
                 if response.status >= 400:
-                    raise RuntimeError(f"HTTP {response.status}")
+                    summary = self._record_http("download", index, target, "GET", parts, path, headers, response)
+                    ctl.advance(target_index, summary)   # coba profil/server berikutnya
+                    continue
                 failures = 0
                 while not ctl.stop.is_set():
                     chunk = response.read(131072)
                     if not chunk:
                         break
-                    ctl.add_bytes(len(chunk))
+                    ctl.add_bytes(len(chunk), target_index)
             except Exception as e:
                 if ctl.stop.is_set():
                     break
                 failures += 1
                 ctl.note_error(e)
+                self._record_exception("download", index, target, parts, path, e)
                 if failures >= 8:
-                    break
-                ctl.stop.wait(0.4)
+                    ctl.advance(target_index, f"{self._describe(target)} {type(e).__name__}")
+                    failures = 0
+                else:
+                    ctl.stop.wait(0.4)
             finally:
                 if conn is not None:
                     try:
@@ -3406,56 +3724,83 @@ class SpeedTestEngine:
                         pass
 
     def _upload_worker(self, ctl, index):
-        parts = self._parts()
-        base = parts.path.rstrip("/")
         chunk = self._upload_chunk
         size = len(chunk)
         time.sleep(0.15 * index)
         failures = 0
+
+        def rejected(answered, target_index, target, parts, path, headers):
+            """Proses balasan server. True bila permintaan ditolak (429 / 4xx / 5xx) sehingga siklus diulang."""
+            status = answered.status
+            if status == 429:
+                self._record_http("upload", index, target, "POST", parts, path, headers, answered)
+                ctl.note_rate_limit(self._retry_after(answered))
+                return True
+            if status >= 400:
+                summary = self._record_http("upload", index, target, "POST", parts, path, headers, answered)
+                ctl.advance(target_index, summary)   # coba profil/server berikutnya
+                return True
+            try:
+                answered.read()
+            except Exception:
+                pass
+            return False
+
         while not ctl.stop.is_set():
             ctl.wait_if_limited()
             if ctl.stop.is_set():
                 break
+            target_index, target = ctl.current()
+            if target is None:
+                break
             conn = None
+            parts, path, headers = None, "", {}
             try:
+                parts, path = self._resolve(target, "upload")
+                headers = self._request_headers(target, parts)
+                headers = dict(headers, **{"Content-Type": "application/octet-stream", "Content-Length": str(self.UPLOAD_CLAIM_BYTES)})
                 conn = self._connect(parts)
-                conn.putrequest("POST", f"{base}/__up")
-                conn.putheader("Content-Type", "application/octet-stream")
-                conn.putheader("Content-Length", str(self.UPLOAD_CLAIM_BYTES))
-                conn.putheader("User-Agent", self.USER_AGENT)
+                conn.putrequest("POST", path, skip_accept_encoding=True)
+                for name, value in headers.items():
+                    conn.putheader(name, value)
                 conn.endheaders()
                 sock = conn.sock
                 sent = 0
                 answered = None
                 while sent < self.UPLOAD_CLAIM_BYTES and not ctl.stop.is_set():
                     conn.send(chunk)   # memblokir sampai data diterima kernel: laju = kecepatan jalur sebenarnya
-                    ctl.add_bytes(size)
+                    ctl.add_bytes(size, target_index)
                     sent += size
-                    if (sent // size) % 16 == 0 and self._readable(sock):
-                        answered = conn.getresponse()   # server menjawab sebelum selesai (mis. 429)
+                    if self._readable(sock):
+                        answered = conn.getresponse()   # server menjawab sebelum selesai (mis. 429/403)
                         break
                 if answered is None and not ctl.stop.is_set():
                     answered = conn.getresponse()
-                if answered is not None:
-                    status = answered.status
-                    try:
-                        answered.read()
-                    except Exception:
-                        pass
-                    if status == 429:
-                        ctl.note_rate_limit(self._retry_after(answered))
-                        continue
-                    if status >= 400:
-                        raise RuntimeError(f"HTTP {status}")
+                if answered is not None and rejected(answered, target_index, target, parts, path, headers):
+                    continue
                 failures = 0
             except Exception as e:
                 if ctl.stop.is_set():
                     break
+                # Server sering menjawab (mis. 403) lalu menutup koneksi: pengiriman berikutnya gagal, tetapi
+                # jawabannya mungkin masih bisa dibaca. Utamakan mencatat penolakan HTTP yang sebenarnya.
+                early = None
+                if conn is not None and getattr(conn, "sock", None) is not None:
+                    try:
+                        early = conn.getresponse()
+                    except Exception:
+                        early = None
+                if early is not None and early.status >= 400:
+                    rejected(early, target_index, target, parts, path, headers)
+                    continue
                 failures += 1
                 ctl.note_error(e)
+                self._record_exception("upload", index, target, parts, path, e)
                 if failures >= 8:
-                    break
-                ctl.stop.wait(0.4)
+                    ctl.advance(target_index, f"{self._describe(target)} {type(e).__name__}")
+                    failures = 0
+                else:
+                    ctl.stop.wait(0.4)
             finally:
                 if conn is not None:
                     try:
@@ -3463,10 +3808,17 @@ class SpeedTestEngine:
                     except Exception:
                         pass
 
-    def _phase_stream(self, kind, t0, worker):
+    def _ladder_failure(self, kind, ctl, label):
+        attempts = list(ctl.attempts)
+        rate_limited = bool(attempts) and all("HTTP 429" in item for item in attempts)
+        message = (f"Semua server/profil gagal pada tahap {label.lower()}: " + "; ".join(attempts)
+                   + ". Detail teknis ikut tersimpan di debug JSON.")
+        return _PhaseFailed(message, rate_limited=rate_limited, details={"attempts": attempts, "errors": ctl.errors[:5]})
+
+    def _phase_stream(self, kind, t0, worker, targets):
         label = "Download" if kind == "download" else "Upload"
         self._update(phase=kind, message=f"{label} berlangsung…")
-        ctl = _PhaseControl()
+        ctl = _PhaseControl(targets)
         threads = [threading.Thread(target=worker, args=(ctl, i), daemon=True) for i in range(self.CONNECTIONS)]
         for thread in threads:
             thread.start()
@@ -3492,14 +3844,26 @@ class SpeedTestEngine:
                 if warm is not None and rel - warm[0] >= self.WINDOW_SECONDS - 1e-9:
                     window_speeds.append(speed)   # jendela penuh setelah masa pemanasan
                 self._add_sample(kind, time.perf_counter() - t0, speed, rel / self.PHASE_SECONDS)
-                if ctl.rate_limited >= 3 and total == 0 and rel > self.RATE_LIMIT_GRACE_SECONDS:
-                    raise _PhaseFailed(
-                        f"Server membatasi permintaan (HTTP 429) pada tahap {label.lower()}. Coba lagi sebentar lagi.",
-                        rate_limited=True,
-                    )
-                if total == 0 and rel > self.NO_DATA_SECONDS:
-                    reason = ctl.errors[0] if ctl.errors else "tidak ada respons dari server"
-                    raise _PhaseFailed(f"Tidak ada data yang mengalir pada tahap {label.lower()} ({reason}).")
+                if ctl.exhausted():
+                    # Semua target sudah menolak. Byte yang sempat terkirim sebelum penolakan (terutama upload) bukan
+                    # trafik yang diterima server, jadi jangan dianggap hasil.
+                    raise self._ladder_failure(kind, ctl, label)
+                if total == 0:
+                    idle = time.perf_counter() - ctl.changed_at
+                    target_index, target = ctl.current()
+                    if ctl.rate_limited >= 3 and idle > self.RATE_LIMIT_GRACE_SECONDS:
+                        reason = f"{self._describe(target)} HTTP 429 berulang"
+                    elif idle > self.NO_DATA_SECONDS:
+                        detail = ctl.errors[0] if ctl.errors else "tidak ada respons dari server"
+                        reason = f"{self._describe(target)} tanpa data ({detail})"
+                    else:
+                        reason = None
+                    if reason is not None:
+                        if ctl.has_next():
+                            ctl.advance(target_index, reason)
+                        else:
+                            ctl.attempts.append(reason)
+                            raise self._ladder_failure(kind, ctl, label)
                 if rel >= self.PHASE_SECONDS:
                     break
         finally:
@@ -3511,9 +3875,11 @@ class SpeedTestEngine:
         else:
             average = total * 8 / max(rel, 1e-6) / 1e6
         pool = window_speeds or [average]
+        used = ctl.used_label()
+        self._set_server(kind, used)
         self._set_result(kind, {
             "avg": round(average, 2), "max": round(max(pool), 2), "min": round(min(pool), 2),
-            "bytes": total, "seconds": round(rel, 2),
+            "bytes": total, "seconds": round(rel, 2), "server": used,
         })
 
 
@@ -3539,7 +3905,9 @@ class Api:
         self._config_file = _user_config_dir() / "config.json"
         self._config = None
         self._config_lock = threading.Lock()
-        self._speed_engine = SpeedTestEngine()
+        self._errors = ErrorLog()          # catatan error yang ikut diekspor ke debug JSON
+        self._last_icmp = None
+        self._speed_engine = SpeedTestEngine(error_log=self._errors)
 
     def get_update_progress(self):
         with self._update_progress_lock:
@@ -3558,6 +3926,23 @@ class Api:
                 return candidate
         return home
 
+    def get_error_log(self):
+        """Catatan error backend (untuk ditampilkan/diekspor)."""
+        return {"summary": self._errors.summary(), "errors": self._errors.snapshot()}
+
+    def clear_error_log(self):
+        self._errors.clear()
+        return {"success": True}
+
+    def _diagnostic_environment(self):
+        return {
+            "app_version": APP_VERSION, "python": sys.version.split()[0], "platform": platform.platform(),
+            "frozen": bool(getattr(sys, "frozen", False)), "router_ip": self._router_ip(),
+            "speed_test_endpoint": SPEED_TEST_ENDPOINT,
+            "speed_test_fallbacks": list(SpeedTestEngine.FALLBACK_DOWNLOADS),
+        }
+
+    @_record_failures("export", skip_params=("payload",))
     def export_diagnostic_logs(self, payload):
         """Save a user-requested, sanitized diagnostic report as a JSON file.
 
@@ -3567,7 +3952,14 @@ class Api:
         """
         import json
         try:
-            text = json.dumps(json.loads(payload), ensure_ascii=False, indent=2)
+            report = json.loads(payload)
+            if isinstance(report, dict):
+                # Semua error yang terjadi selama aplikasi dipakai (mis. HTTP 403 pada speed test) ikut diekspor.
+                report["backend_errors"] = self._errors.snapshot()
+                report["error_summary"] = self._errors.summary()
+                report["speed_test_last"] = self._speed_engine.diagnostic_snapshot()
+                report["backend_environment"] = self._diagnostic_environment()
+            text = json.dumps(report, ensure_ascii=False, indent=2)
         except Exception as e:
             return {"success": False, "error": f"Data log tidak valid: {type(e).__name__}: {e}"}
 
@@ -3724,6 +4116,7 @@ class Api:
         config = self._load_config()
         return {"ip": config["router_ip"], "configured": config["router_ip_confirmed"], "default": DEFAULT_ROUTER_IP}
 
+    @_record_failures("router_config")
     def set_router_config(self, ip):
         normalized, error = self._normalize_router_ip(ip)
         if error:
@@ -3733,6 +4126,7 @@ class Api:
             return {"success": False, "error": error}
         return {"success": True, "ip": normalized, "configured": True}
 
+    @_record_failures("router_config")
     def test_router_connection(self, ip=None):
         if ip:
             target, error = self._normalize_router_ip(ip)
@@ -3761,7 +4155,7 @@ class Api:
             "Content-Type": "application/json",
             "Referer": f"http://{ip}/index.html",
             "Origin": f"http://{ip}",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 YaBrowser/26.11.0.2030 Yowser/2.5 Safari/537.36",
             "z-mode": "0",
             "z-tag": "nwinfo_get_netinfo",
             "X-Requested-With": "XMLHttpRequest",
@@ -3779,6 +4173,10 @@ class Api:
                 res = json_array[0].get("result")
                 if isinstance(res, list) and len(res) > 1 and isinstance(res[1], dict):
                     data = res[1]
+        if not data:
+            self._errors.add("router", "unrecognized_response", "Balasan router tidak dikenali (bukan data zte_nwinfo_api)",
+                             dedupe_key=("router", "unrecognized", ip), router_ip=ip, http_status=getattr(resp, "status_code", None),
+                             body_snippet=str(getattr(resp, "text", ""))[:300])
         return data
 
     def get_router_data(self):
@@ -3788,6 +4186,8 @@ class Api:
             data = self._router_request(self._router_ip())
         except Exception as e:
             print(f"[ERROR TOWER] {e}")
+            self._errors.add("router", "get_router_data", f"{type(e).__name__}: {e}",
+                             dedupe_key=("router", type(e).__name__, str(e)[:100]), router_ip=self._router_ip(), timeout_s=3)
 
         # Do not report internet as normal if router telemetry/tower signal is unavailable.
         try:
@@ -3829,6 +4229,7 @@ class Api:
         )
         return bool(hostname_pattern.fullmatch(host))
 
+    @_record_failures("ping")
     def run_ping(self, host="1.1.1.1"):
         if not self._valid_ping_host(host):
             return {"success": False, "output": "Host/IP tidak valid. Gunakan alamat IP atau nama host DNS yang valid (maksimal 253 karakter)."}
@@ -3877,10 +4278,14 @@ class Api:
             options["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         completed = subprocess.run(command, **options)
         if completed.returncode != 0:
+            self._last_icmp = {"command": " ".join(command), "returncode": completed.returncode, "output": (completed.stdout or "")[:300]}
             return None
         found = self._PING_TIME.findall(completed.stdout or "")
         if not found:
+            self._last_icmp = {"command": " ".join(command), "returncode": completed.returncode, "output": (completed.stdout or "")[:300],
+                               "note": "balasan tanpa nilai waktu (mis. host tidak terjangkau)"}
             return None
+        self._last_icmp = None
         sign, number = found[-1]
         value = float(number.replace(",", "."))
         if sign == "<":
@@ -3901,6 +4306,7 @@ class Api:
             self._ping_warm = False
             return {"success": False, "error": f"{type(e).__name__}: {e}"}
 
+    @_record_failures("ping")
     def get_ping_latency(self):
         """Latensi internet untuk dashboard: ICMP ke 1.1.1.1 (sama dengan Ping Tools dan aplikasi Android).
 
@@ -3909,11 +4315,18 @@ class Api:
         """
         try:
             value = self._icmp_ping_ms()
-        except Exception:
+        except Exception as e:
+            self._last_icmp = {"exception": f"{type(e).__name__}: {e}"}
             value = None
         if value is not None:
             return {"success": True, "value": value, "method": "icmp"}
-        return self._https_ping()
+        result = self._https_ping()
+        if result.get("success"):
+            self._errors.add("ping", "icmp_unavailable", "Ping ICMP gagal; memakai cadangan HTTPS (nilai bisa lebih tinggi)",
+                             dedupe_key=("ping", "icmp_unavailable"), level="warning", icmp=self._last_icmp)
+        else:
+            result = dict(result, icmp=self._last_icmp)   # ikut tercatat oleh pencatat kegagalan
+        return result
 
     @staticmethod
     def _release_version_key(tag):
@@ -4180,6 +4593,7 @@ class Api:
             return {"supported": True, "enabled": False, "error": f"{type(e).__name__}: {e}"}
         return {"supported": True, "enabled": enabled, "path": str(exe)}
 
+    @_record_failures("startup")
     def set_startup(self, enabled):
         exe = self._installed_exe_path()
         if exe is None:
@@ -4199,6 +4613,7 @@ class Api:
             return {"success": False, "error": f"{type(e).__name__}: {e}"}
         return {"success": True, "enabled": bool(enabled)}
 
+    @_record_failures("update")
     def check_for_updates(self, channel="stable"):
         try:
             release = self._get_release(channel)
@@ -4242,6 +4657,7 @@ class Api:
         except Exception as e:
             return {"update_available": False, "error": f"Gagal memeriksa release: {type(e).__name__}: {e}"}
 
+    @_record_failures("update")
     def install_update(self, tag_name, channel="stable"):
         """Install only the release asset matching the current desktop app type."""
         try:
