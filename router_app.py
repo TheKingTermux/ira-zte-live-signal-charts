@@ -23,7 +23,7 @@ import ssl
 from collections import deque
 from urllib.parse import urlsplit
 
-APP_VERSION = "1.1-dev.3"
+APP_VERSION = "1.1-dev.15"
 SPEED_TEST_ENDPOINT = "https://speed.cloudflare.com"
 DEFAULT_ROUTER_IP = "192.168.0.1"
 GITHUB_REPOSITORY = "TheKingTermux/ira-zte-live-signal-charts"
