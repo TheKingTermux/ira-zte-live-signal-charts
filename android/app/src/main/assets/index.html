@@ -2044,6 +2044,31 @@
             diagnosticErrors.push({ time: new Date().toISOString(), type: 'unhandledrejection', message: String(event.reason || 'Unknown rejection') });
             if (diagnosticErrors.length > 200) diagnosticErrors.shift();
         });
+        // console.error juga ikut tercatat: banyak kegagalan API/jaringan hanya dilaporkan lewat console.error.
+        const nativeConsoleError = console.error.bind(console);
+        console.error = function(...args) {
+            try {
+                const text = args.map(item => {
+                    if (item && item.stack) return String(item.stack);
+                    if (item !== null && typeof item === 'object') { try { return JSON.stringify(item); } catch (error) { return String(item); } }
+                    return String(item);
+                }).join(' ');
+                diagnosticErrors.push({ time: new Date().toISOString(), type: 'console.error', message: text.slice(0, 800) });
+                if (diagnosticErrors.length > 200) diagnosticErrors.shift();
+            } catch (error) { /* pencatatan tidak boleh mengganggu aplikasi */ }
+            nativeConsoleError(...args);
+        };
+
+        // Error yang terjadi di sisi native (jaringan router, ping, pembaruan APK, dll.) ikut diekspor.
+        function readNativeErrors() {
+            try {
+                const bridge = window.AndroidBridge;
+                if (bridge && typeof bridge.getErrorLog === 'function') return JSON.parse(bridge.getErrorLog());
+            } catch (error) {
+                return [{ type: 'native_error_log_unreadable', message: String(error) }];
+            }
+            return [];
+        }
 
         function setExportStatus(message, isError = false) {
             // Banner tertutup oleh jendela About, jadi hasil juga ditulis di dekat tombol.
@@ -2079,6 +2104,7 @@
                     connection_history: Array.isArray(connectionHistory) ? connectionHistory.slice(0, 300) : [],
                     signal_history: signalHistory.slice(-15),
                     javascript_errors: diagnosticErrors.slice(-200),
+                    native_errors: readNativeErrors(),
                     settings: {
                         router_poll_interval_ms: safeStorage.getItem('router_freq') || 'default',
                         ping_interval_ms: safeStorage.getItem('router_ping_freq') || 'auto',

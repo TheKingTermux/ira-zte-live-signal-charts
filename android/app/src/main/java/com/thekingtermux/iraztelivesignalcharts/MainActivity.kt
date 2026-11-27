@@ -36,6 +36,67 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
+/**
+ * Catatan error native (ring buffer) yang ikut diekspor ke debug JSON. Error yang sama berulang digabung
+ * (hitungan "count"); nilai panjang dipotong dan nama berisi authorization/cookie/token/password/secret
+ * disamarkan.
+ */
+class ErrorLog(private val maxEntries: Int = 200) {
+    private val entries = ArrayList<JSONObject>()
+    private val index = HashMap<String, JSONObject>()
+    private var sequence = 0
+    private val secretName = Regex("authorization|cookie|token|password|secret|api[-_]?key", RegexOption.IGNORE_CASE)
+
+    private fun clean(value: Any?, depth: Int = 0): Any? {
+        if (depth > 4) return "…"
+        return when (value) {
+            null -> JSONObject.NULL
+            is Boolean, is Int, is Long, is Double, is Float -> value
+            is String -> if (value.length <= 600) value else value.substring(0, 600) + "…"
+            is Map<*, *> -> JSONObject().also { out ->
+                for ((key, item) in value.entries.take(60)) {
+                    val name = key.toString()
+                    out.put(name, if (secretName.containsMatchIn(name)) "[disembunyikan]" else clean(item, depth + 1))
+                }
+            }
+            is Iterable<*> -> JSONArray().also { out -> for (item in value.take(50)) out.put(clean(item, depth + 1)) }
+            else -> value.toString().take(600)
+        }
+    }
+
+    @Synchronized
+    fun add(
+        source: String, operation: String, message: String, details: Map<String, Any?> = emptyMap(),
+        dedupeKey: String? = null, level: String = "error",
+    ) {
+        val formatter = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US)
+        formatter.timeZone = java.util.TimeZone.getTimeZone("UTC")
+        val now = formatter.format(java.util.Date())
+        if (dedupeKey != null) {
+            val existing = index[dedupeKey]
+            if (existing != null) {
+                existing.put("count", existing.optInt("count", 1) + 1)
+                existing.put("last_seen", now)
+                return
+            }
+        }
+        sequence++
+        val entry = JSONObject()
+            .put("id", sequence).put("time", now).put("last_seen", now).put("count", 1).put("level", level)
+            .put("source", source).put("operation", operation).put("message", clean(message))
+            .put("details", clean(details))
+        entries.add(entry)
+        if (dedupeKey != null) index[dedupeKey] = entry
+        while (entries.size > maxEntries) {
+            val dropped = entries.removeAt(0)
+            index.entries.removeAll { it.value === dropped }
+        }
+    }
+
+    @Synchronized
+    fun snapshot(): String = JSONArray(entries).toString()
+}
+
 class MainActivity : Activity() {
     private lateinit var webView: WebView
     private val repository = "TheKingTermux/ira-zte-live-signal-charts"
@@ -174,11 +235,13 @@ class MainActivity : Activity() {
                 values.put(MediaStore.Downloads.IS_PENDING, 0)
                 resolver.update(uri, values, null, null)
             } catch (e: Exception) {
+                logError("export", "write_download", e, mapOf("file" to fileName))
                 resolver.delete(uri, null, null)
                 return null
             }
             "Download/IRA ZTE/$fileName"
         } catch (e: Exception) {
+            logError("export", "save_download", e, mapOf("file" to fileName))
             null
         }
     }
@@ -396,6 +459,7 @@ class MainActivity : Activity() {
                 }
             } finally { probe.disconnect() }
         } catch (e: Exception) {
+            logError("apk_update", "download_probe", e, mapOf("url" to url), level = "warning")
             ranged = false
         }
         if (ranged && total >= 2L * 1024 * 1024) {
@@ -403,6 +467,7 @@ class MainActivity : Activity() {
                 downloadParallel(finalUrl, total, target, onProgress)
                 return
             } catch (e: Exception) {
+                logError("apk_update", "download_parallel", e, mapOf("url" to finalUrl, "total_bytes" to total), level = "warning")
                 target.delete()
             }
         }
@@ -442,10 +507,21 @@ class MainActivity : Activity() {
                     status("APK siap dipasang. Ikuti konfirmasi Android.")
                     downloadDone(true, "Unduhan selesai. Ikuti layar pemasangan Android untuk menyelesaikan pembaruan.")
                 } catch (e: Exception) {
+                    logError("apk_update", "install", e)
                     status("Gagal membuka pemasang: ${e.localizedMessage}")
                     downloadDone(false, "Gagal membuka pemasang: ${e.localizedMessage ?: e.javaClass.simpleName}")
                 }
             }
+    }
+
+    // Catatan error native; ikut diekspor lewat AndroidBridge.getErrorLog().
+    private val errorLog = ErrorLog()
+
+    private fun logError(source: String, operation: String, error: Throwable, details: Map<String, Any?> = emptyMap(), level: String = "error") {
+        val name = error.javaClass.simpleName
+        val message = error.message ?: ""
+        errorLog.add(source, operation, "$name: $message", details + mapOf("exception" to name),
+            dedupeKey = "$source:$operation:$name:${message.take(80)}", level = level)
     }
 
     // ---- Alamat router: cukup IPv4 (jalur /ubus tetap) ----------------------------------------------
@@ -526,6 +602,7 @@ class MainActivity : Activity() {
                         put("message", if (isNewer) "Update tersedia." else "Aplikasi sudah menggunakan versi terbaru untuk kanal $label.")
                     })
                 } catch (e: Exception) {
+                    logError("apk_update", "check", e, mapOf("channel" to selectedChannel))
                     val message = "Gagal memeriksa update: ${e.localizedMessage ?: "kesalahan jaringan"}"
                     status(message)
                     updateResultToJs(JSONObject().apply {
@@ -550,6 +627,7 @@ class MainActivity : Activity() {
                     }
                     installApk(release)
                 } catch (e: Exception) {
+                    logError("apk_update", "download", e, mapOf("channel" to selectedChannel))
                     val message = "Gagal mengunduh APK: ${e.localizedMessage ?: "kesalahan jaringan"}"
                     status(message)
                     downloadDone(false, message)
@@ -587,10 +665,14 @@ class MainActivity : Activity() {
                         when {
                             savedPath != null -> exportResult(true, "Log disimpan di $savedPath" + if (shared) ". Pilih aplikasi untuk membagikannya." else ".")
                             shared -> exportResult(true, "Pilih tujuan penyimpanan atau aplikasi untuk membagikan log.")
-                            else -> exportResult(false, "Tidak bisa menyimpan atau membagikan log di perangkat ini.")
+                            else -> {
+                                errorLog.add("export", "export_diagnostic_logs", "Tidak bisa menyimpan atau membagikan log di perangkat ini.", dedupeKey = "export:no_target")
+                                exportResult(false, "Tidak bisa menyimpan atau membagikan log di perangkat ini.")
+                            }
                         }
                     }
                 } catch (e: Exception) {
+                    logError("export", "export_diagnostic_logs", e)
                     exportResult(false, "Gagal ekspor log: ${e.localizedMessage ?: e.javaClass.simpleName}")
                 }
             }.start()
@@ -633,9 +715,16 @@ class MainActivity : Activity() {
                     .redirectErrorStream(true).start()
                 val output = process.inputStream.bufferedReader().use { it.readText() }
                 val exitCode = process.waitFor()
-                if (exitCode != 0) -1
-                else Regex("time[=<]([0-9.]+)").find(output)?.groupValues?.get(1)?.toDoubleOrNull()?.toInt() ?: 0
-            } catch (_: Exception) { -1 }
+                if (exitCode != 0) {
+                    errorLog.add("ping", "ping_host", "Ping $target gagal (kode keluar $exitCode)",
+                        mapOf("host" to target, "exit_code" to exitCode, "output" to output.take(300)),
+                        dedupeKey = "ping:host:$target:$exitCode")
+                    -1
+                } else Regex("time[=<]([0-9.]+)").find(output)?.groupValues?.get(1)?.toDoubleOrNull()?.toInt() ?: 0
+            } catch (e: Exception) {
+                logError("ping", "ping_host", e, mapOf("host" to target))
+                -1
+            }
         }
 
         // Cek internet di-cache dan diperbarui di thread latar agar pengambilan data router tidak ikut menunggu
@@ -670,6 +759,9 @@ class MainActivity : Activity() {
             return internetOk
         }
 
+        @JavascriptInterface
+        fun getErrorLog(): String = errorLog.snapshot()
+
         // ---- Konfigurasi alamat router (SharedPreferences) ----
         private val settings by lazy { getSharedPreferences("ira_settings", android.content.Context.MODE_PRIVATE) }
 
@@ -686,7 +778,11 @@ class MainActivity : Activity() {
         @JavascriptInterface
         fun setRouterIp(ip: String?): String {
             val normalized = normalizeRouterIp(ip)
-                ?: return JSONObject().put("success", false).put("error", routerIpError(ip)).toString()
+            if (normalized == null) {
+                val message = routerIpError(ip)
+                errorLog.add("router_config", "set_router_ip", message, mapOf("ip" to ip), dedupeKey = "router_config:set:$message:$ip")
+                return JSONObject().put("success", false).put("error", message).toString()
+            }
             settings.edit().putString("router_ip", normalized).putBoolean("router_ip_confirmed", true).apply()
             return JSONObject().put("success", true).put("ip", normalized).put("configured", true).toString()
         }
@@ -710,9 +806,11 @@ class MainActivity : Activity() {
                         } else {
                             result.put("success", false).put("ip", target).put("reachable", true).put("error", notZte)
                         }
-                    } catch (_: org.json.JSONException) {
+                    } catch (e: org.json.JSONException) {
+                        logError("router_config", "test_connection", e, mapOf("router_ip" to target, "note" to "balasan bukan JSON zte_nwinfo_api"))
                         result.put("success", false).put("ip", target).put("reachable", true).put("error", notZte)
-                    } catch (_: Exception) {
+                    } catch (e: Exception) {
+                        logError("router_config", "test_connection", e, mapOf("router_ip" to target, "timeout_ms" to 3000))
                         result.put("success", false).put("ip", target)
                             .put("error", "Router tidak bisa dihubungi di $target. Periksa alamat IP dan koneksi ke router.")
                     }
@@ -730,7 +828,7 @@ class MainActivity : Activity() {
                 setRequestProperty("Content-Type", "application/json")
                 setRequestProperty("Referer", "http://$ip/index.html")
                 setRequestProperty("Origin", "http://$ip")
-                setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130.0 Mobile Safari/537.36")
+                setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 YaBrowser/26.11.0.2030 Yowser/2.5 Safari/537.36")
                 setRequestProperty("z-mode", "0"); setRequestProperty("z-tag", "nwinfo_get_netinfo")
                 setRequestProperty("X-Requested-With", "XMLHttpRequest")
             }
@@ -751,8 +849,13 @@ class MainActivity : Activity() {
                 if (telemetry != null) {
                     val keys = telemetry.keys()
                     while (keys.hasNext()) { val key = keys.next(); data.put(key, telemetry.opt(key)) }
+                } else {
+                    errorLog.add("router", "unrecognized_response", "Balasan router tidak dikenali (bukan data zte_nwinfo_api)",
+                        mapOf("router_ip" to routerIp()), dedupeKey = "router:unrecognized:${routerIp()}")
                 }
-            } catch (_: Exception) { }
+            } catch (e: Exception) {
+                logError("router", "get_router_data", e, mapOf("router_ip" to routerIp(), "timeout_ms" to 3000))
+            }
             data.put("internet_ok", internetState())
             return data.toString()
         }
@@ -766,7 +869,7 @@ class MainActivity : Activity() {
         fun requestRouterData() {
             if (!routerFetchBusy.compareAndSet(false, true)) return
             Thread {
-                val json = try { buildRouterData() } catch (_: Exception) { "{}" }
+                val json = try { buildRouterData() } catch (e: Exception) { logError("router", "request_router_data", e); "{}" }
                 routerFetchBusy.set(false)
                 val script = "window.onRouterData && window.onRouterData($json);"
                 runOnUiThread { webView.evaluateJavascript(script, null) }
@@ -777,6 +880,10 @@ class MainActivity : Activity() {
             val connection = URL("http://1.1.1.1").openConnection() as HttpURLConnection
             connection.connectTimeout = 1500; connection.readTimeout = 1500
             connection.connect(); connection.disconnect(); true
-        } catch (_: Exception) { false }
+        } catch (e: Exception) {
+            // Internet putus adalah kondisi yang perlu terlihat saat diagnosa (digabung per jenis error).
+            logError("internet", "check_internet", e, mapOf("url" to "http://1.1.1.1", "timeout_ms" to 1500), level = "warning")
+            false
+        }
     }
 }
